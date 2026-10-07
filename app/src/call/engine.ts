@@ -424,7 +424,7 @@ function handleMessage(message: ServerMessage) {
             finish('you-left', true);
             return;
           }
-          if (get().callId === callId) await setupPeer(initiator);
+          if (get().callId === callId && get().phase === 'connecting') await setupPeer(initiator);
         })
         .catch(() => finish('connection', true));
       return;

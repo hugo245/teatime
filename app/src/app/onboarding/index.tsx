@@ -7,6 +7,7 @@ import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { Screen } from '../../components/Screen';
 import { ServerSheet } from '../../components/ServerSheet';
+import { serverUrl } from '../../lib/config';
 import { useSession } from '../../state/session';
 import { colors, radius, space } from '../../theme';
 
@@ -26,7 +27,11 @@ export default function WelcomeScreen() {
     <Screen
       footer={
         <>
-          <Button label="Get started" icon="arrow-forward" onPress={() => router.push('/onboarding/name')} />
+          <Button
+            label="Get started"
+            icon="arrow-forward"
+            onPress={() => (serverUrl() ? router.push('/onboarding/name') : setServerSheet(true))}
+          />
           <Button label="How TeaTime works" variant="ghost" size="medium" onPress={() => router.push('/help')} />
         </>
       }

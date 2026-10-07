@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: teatime-server
+    runtime: docker
+    rootDir: server
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: SUPPORT_EMAIL
+        value: support@example.com
+      - key: TRUST_PROXY
+        value: '1'
+      - key: DATABASE_FILE
+        value: /data/teatime.db
+      - key: TURN_URLS
+        sync: false
+      - key: TURN_USERNAME
+        sync: false
+      - key: TURN_CREDENTIAL
+        sync: false
+    disk:
+      name: teatime-data
+      mountPath: /data
+      sizeGB: 1

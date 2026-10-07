@@ -10,7 +10,7 @@ import { TextField } from './TextField';
 
 export function ServerSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const setServer = useSettings((s) => s.setServer);
-  const [value, setValue] = useState(serverUrl());
+  const [value, setValue] = useState(serverUrl() || 'http://');
   const [status, setStatus] = useState<string | null>(null);
 
   const save = async () => {
@@ -18,7 +18,7 @@ export function ServerSheet({ visible, onClose }: { visible: boolean; onClose: (
     setStatus('Checking...');
     try {
       const res = await fetch(url.replace(/\/+$/, '') + '/health');
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new Error('unreachable');
       setServer(url);
       realtime.reconnectNow();
       setStatus('Connected');
@@ -32,7 +32,9 @@ export function ServerSheet({ visible, onClose }: { visible: boolean; onClose: (
     <Sheet visible={visible} onClose={onClose}>
       <AppText variant="title">Server address</AppText>
       <AppText variant="caption" color={colors.textMuted}>
-        Default: {defaultServerUrl() || 'not set'}
+        {defaultServerUrl()
+          ? `Default: ${defaultServerUrl()}`
+          : 'Enter the address of your TeaTime server, for example http://192.168.1.20:8080 when the simulator runs on your computer.'}
       </AppText>
       <TextField
         value={value}

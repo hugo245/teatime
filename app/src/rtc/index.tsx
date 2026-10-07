@@ -15,8 +15,10 @@ export async function openCamera(_label: string): Promise<RtcStream> {
     });
     return stream as unknown as RtcStream;
   } catch (error) {
+    const name = String((error as Error)?.name ?? '');
     const message = String((error as Error)?.message ?? error).toLowerCase();
-    throw new CameraError(message.includes('denied') || message.includes('permission') ? 'denied' : 'unavailable');
+    const denied = name === 'NotAllowedError' || message.includes('denied') || message.includes('permission');
+    throw new CameraError(denied ? 'denied' : 'unavailable');
   }
 }
 

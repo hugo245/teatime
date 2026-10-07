@@ -29,6 +29,8 @@ export type HubOptions = {
   ringTimeoutMs?: number;
   reconnectGraceMs?: number;
   rematchCooldownMs?: number;
+  rematchWaitMs?: number;
+  matchIntervalMs?: number;
 };
 
 const OPEN = 1;
@@ -41,9 +43,11 @@ export class Hub {
   private lastPartner = new Map<string, { peer: string; at: number }>();
   private graceTimers = new Map<string, NodeJS.Timeout>();
   private onlineTimer: NodeJS.Timeout | null = null;
+  private matchTimer: NodeJS.Timeout;
   private ringTimeoutMs: number;
   private reconnectGraceMs: number;
   private rematchCooldownMs: number;
+  private rematchWaitMs: number;
 
   constructor(
     private store: Store,
@@ -52,6 +56,9 @@ export class Hub {
     this.ringTimeoutMs = options.ringTimeoutMs ?? 45_000;
     this.reconnectGraceMs = options.reconnectGraceMs ?? 15_000;
     this.rematchCooldownMs = options.rematchCooldownMs ?? 120_000;
+    this.rematchWaitMs = options.rematchWaitMs ?? 8_000;
+    this.matchTimer = setInterval(() => this.matchWaiting(), options.matchIntervalMs ?? 2_000);
+    this.matchTimer.unref();
   }
 
   get onlineCount() {
@@ -205,6 +212,7 @@ export class Hub {
   }
 
   shutdown() {
+    clearInterval(this.matchTimer);
     for (const timer of this.graceTimers.values()) clearTimeout(timer);
     for (const call of this.calls.values()) if (call.ringTimer) clearTimeout(call.ringTimer);
     if (this.onlineTimer) clearTimeout(this.onlineTimer);
@@ -224,13 +232,35 @@ export class Hub {
       this.send(userId, { type: 'error', code: 'busy' });
       return;
     }
-    const me = this.store.getUser(userId);
-    if (!me) return;
     this.leaveQueue(userId);
+    const partner = this.findPartner(userId, 0);
+    if (partner) {
+      this.leaveQueue(partner.userId);
+      this.connectPair(userId, partner.userId);
+      return;
+    }
+    this.queue.push({ userId, since: Date.now() });
+    this.send(userId, { type: 'meet.searching', online: this.onlineCount });
+  }
 
+  private matchWaiting() {
+    for (const entry of [...this.queue]) {
+      if (!this.queue.includes(entry)) continue;
+      const partner = this.findPartner(entry.userId, Date.now() - entry.since);
+      if (!partner) continue;
+      this.leaveQueue(entry.userId);
+      this.leaveQueue(partner.userId);
+      this.connectPair(entry.userId, partner.userId);
+    }
+  }
+
+  private findPartner(userId: string, waitedMs: number): QueueEntry | null {
+    const me = this.store.getUser(userId);
+    if (!me) return null;
     const now = Date.now();
     let best: { entry: QueueEntry; shared: number } | null = null;
     for (const entry of this.queue) {
+      if (entry.userId === userId) continue;
       if (!this.clients.has(entry.userId) || this.userCall.has(entry.userId)) continue;
       if (this.store.isBlockedEither(userId, entry.userId)) continue;
       const recent = this.lastPartner.get(userId);
@@ -238,34 +268,31 @@ export class Hub {
       const metJustNow =
         (recent?.peer === entry.userId && now - recent.at < this.rematchCooldownMs) ||
         (theirRecent?.peer === userId && now - theirRecent.at < this.rematchCooldownMs);
-      if (metJustNow && now - entry.since < 15_000) continue;
+      if (metJustNow && Math.max(waitedMs, now - entry.since) < this.rematchWaitMs) continue;
       const other = this.store.getUser(entry.userId);
       if (!other || other.banned) continue;
       const shared = other.interests.filter((i) => me.interests.includes(i)).length;
       if (!best || shared > best.shared) best = { entry, shared };
     }
+    return best?.entry ?? null;
+  }
 
-    if (!best) {
-      this.queue.push({ userId, since: now });
-      this.send(userId, { type: 'meet.searching', online: this.onlineCount });
-      return;
-    }
-
-    this.leaveQueue(best.entry.userId);
+  private connectPair(caller: string, callee: string) {
+    const now = Date.now();
     const call: Call = {
       id: randomUUID(),
       kind: 'random',
-      caller: userId,
-      callee: best.entry.userId,
+      caller,
+      callee,
       state: 'active',
       createdAt: now,
     };
     this.calls.set(call.id, call);
-    this.userCall.set(call.caller, call.id);
-    this.userCall.set(call.callee, call.id);
-    this.store.recordCall(call.id, call.caller, call.callee, call.kind);
-    this.lastPartner.set(call.caller, { peer: call.callee, at: now });
-    this.lastPartner.set(call.callee, { peer: call.caller, at: now });
+    this.userCall.set(caller, call.id);
+    this.userCall.set(callee, call.id);
+    this.store.recordCall(call.id, caller, callee, call.kind);
+    this.lastPartner.set(caller, { peer: callee, at: now });
+    this.lastPartner.set(callee, { peer: caller, at: now });
     this.announceStart(call);
   }
 

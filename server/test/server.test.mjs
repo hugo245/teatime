@@ -11,7 +11,7 @@ before(async () => {
     iceServers: [{ urls: 'stun:stun.example.org:3478' }],
     supportEmail: 'help@example.org',
     adminToken: 'admin-secret',
-    hub: { ringTimeoutMs: 400, reconnectGraceMs: 200, rematchCooldownMs: 60_000 },
+    hub: { ringTimeoutMs: 400, reconnectGraceMs: 200, rematchCooldownMs: 60_000, rematchWaitMs: 300, matchIntervalMs: 100 },
   });
   await new Promise((resolve) => server.http.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.http.address().port}`;
@@ -286,6 +286,31 @@ describe('meeting and calls', () => {
     await agnes.close();
     await bernard.close();
     await clara.close();
+  });
+
+  test('matches the same two people again after a short wait', async () => {
+    const a = await register('Again');
+    const b = await register('Twice');
+    const first = await connect(a.token);
+    const second = await connect(b.token);
+    first.send({ type: 'meet.start' });
+    await first.next('meet.searching');
+    second.send({ type: 'meet.start' });
+    const start = await first.next('call.start');
+    await second.next('call.start');
+    first.send({ type: 'call.hangup', callId: start.callId });
+    await second.next('call.ended');
+
+    first.send({ type: 'meet.start' });
+    await first.next('meet.searching');
+    second.send({ type: 'meet.start' });
+    await second.next('meet.searching');
+    const again = await first.next('call.start', 3000);
+    assert.notEqual(again.callId, start.callId);
+    assert.equal(again.peer.name, 'Twice');
+    await second.next('call.start');
+    await first.close();
+    await second.close();
   });
 
   test('ends an active call when a person disconnects for good', async () => {
