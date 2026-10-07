@@ -16,6 +16,12 @@ The app has three tabs:
 
 During a call there are four large buttons with labels: Mute, Camera, Add friend and End call. A Report button sits at the top.
 
+| Meet | In a call |
+| --- | --- |
+| ![Meet tab on two simulated iPhones](docs/meet.png) | ![A video call between two simulated iPhones](docs/call.png) |
+| **After a call** | **Friends** |
+| ![The screen after a call](docs/after-call.png) | ![The Friends tab](docs/friends.png) |
+
 ## What is in this repository
 
 | Folder | What it is |
