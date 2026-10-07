@@ -89,6 +89,14 @@ const config: ExpoConfig = {
       },
     ],
     ['expo-secure-store', { faceIDPermission: false }],
+    [
+      'expo-camera',
+      {
+        cameraPermission: 'TeaTime uses your camera so the people you talk with can see you.',
+        microphonePermission: 'TeaTime uses your microphone so the people you talk with can hear you.',
+        barcodeScannerEnabled: false,
+      },
+    ],
   ],
   experiments: {
     typedRoutes: false,

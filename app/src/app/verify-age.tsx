@@ -31,6 +31,7 @@ export default function VerifyAgeScreen() {
   const [year, setYear] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState<string | null>(null);
+  const [detail, setDetail] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => () => useSession.getState().finishJoining(), []);
@@ -54,6 +55,7 @@ export default function VerifyAgeScreen() {
       return;
     }
     setError(null);
+    setDetail(null);
     setAttempt((n) => n + 1);
     setStage('camera');
   };
@@ -77,9 +79,11 @@ export default function VerifyAgeScreen() {
       setStage('failed');
     } else if (message.type === 'nocamera') {
       setReason('TeaTime could not use your camera. Please allow camera access in Settings and try again.');
+      setDetail(message.detail ?? null);
       setStage('failed');
     } else if (message.type === 'error') {
       setReason('Something went wrong. Please check your internet connection and try again.');
+      setDetail(message.detail ?? null);
       setStage('failed');
     }
   };
@@ -148,6 +152,11 @@ export default function VerifyAgeScreen() {
           <AppText variant="body" color={colors.textMuted} center>
             {reason}
           </AppText>
+          {detail ? (
+            <AppText variant="caption" color={colors.textFaint} center>
+              Details: {detail}
+            </AppText>
+          ) : null}
         </View>
       </Screen>
     );
