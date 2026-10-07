@@ -31,7 +31,7 @@ export default function RulesStep() {
     try {
       await useSession
         .getState()
-        .register({ name: draft.name, location: draft.location, about: '', interests: draft.interests }, draft.photo?.base64 ?? null);
+        .register({ name: draft.name, location: draft.location, about: '', interests: draft.interests, languages: draft.languages, showAge: true }, draft.photo?.base64 ?? null);
       useOnboarding.getState().reset();
     } catch (e) {
       if (e instanceof ApiError && e.field === 'name') {
@@ -47,7 +47,7 @@ export default function RulesStep() {
 
   return (
     <OnboardingStep
-      step={5}
+      step={6}
       title="Our promise to each other"
       subtitle="TeaTime is a friendly place. Everyone agrees to these simple rules."
       footer={

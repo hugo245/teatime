@@ -15,6 +15,8 @@ export const colors = {
   dangerPressed: '#A9362F',
   dangerSoft: '#FBE6E3',
   online: '#2FA36B',
+  verified: '#2A5DA8',
+  verifiedSoft: '#E3ECF8',
   callBg: '#111814',
   scrim: 'rgba(17, 24, 20, 0.55)',
   white: '#FFFFFF',

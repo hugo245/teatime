@@ -1,0 +1,18 @@
+name = "teatime"
+main = "src/worker.ts"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./public"
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "TeaTimeHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TeaTimeHub"]
+
+[vars]
+SUPPORT_EMAIL = "support@teatime.app"

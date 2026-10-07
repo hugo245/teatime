@@ -6,7 +6,7 @@ import {
   useFonts,
 } from '@expo-google-fonts/nunito';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, type ReactNode } from 'react';
 import { View } from 'react-native';
@@ -39,6 +39,7 @@ export default function RootLayout() {
     ...Ionicons.font,
   });
   const status = useSession((s) => s.status);
+  const justJoined = useSession((s) => s.justJoined);
   const settingsLoaded = useSettings((s) => s.loaded);
 
   useEffect(() => {
@@ -55,6 +56,12 @@ export default function RootLayout() {
       useFriends.getState().reset();
     }
   }, [status]);
+
+  useEffect(() => {
+    if (status !== 'signedIn' || !justJoined) return;
+    const timer = setTimeout(() => router.push({ pathname: '/verify-age', params: { first: '1' } }), 350);
+    return () => clearTimeout(timer);
+  }, [status, justJoined]);
 
   const ready = (fontsLoaded || !!fontError) && settingsLoaded && status !== 'loading';
 
@@ -83,6 +90,7 @@ export default function RootLayout() {
             <Stack.Screen name="edit-profile" />
             <Stack.Screen name="friend/[id]" />
             <Stack.Screen name="blocked" />
+            <Stack.Screen name="verify-age" />
           </Stack.Protected>
           <Stack.Protected guard={status === 'signedOut'}>
             <Stack.Screen name="onboarding" />

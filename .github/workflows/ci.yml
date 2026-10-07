@@ -20,6 +20,8 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - run: npm ci
       - run: npm test
+      - name: Check the Cloudflare bundle
+        run: npx wrangler deploy --dry-run --outdir worker-build
 
   app:
     runs-on: ubuntu-latest

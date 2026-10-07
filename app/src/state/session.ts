@@ -8,10 +8,14 @@ type Status = 'loading' | 'signedOut' | 'signedIn';
 type SessionState = {
   status: Status;
   user: PublicUser | null;
+  showAge: boolean;
+  justJoined: boolean;
   notice: string | null;
   load(): Promise<void>;
   register(profile: ProfileInput, photoBase64: string | null): Promise<void>;
-  setUser(user: PublicUser): void;
+  setUser(user: PublicUser, showAge?: boolean): void;
+  checkAge(birthYear: number, estimatedAge: number): Promise<{ verified: boolean; reason?: string }>;
+  finishJoining(): void;
   updateProfile(patch: Partial<ProfileInput>): Promise<void>;
   setPhoto(base64: string): Promise<void>;
   removePhoto(): Promise<void>;
@@ -41,6 +45,8 @@ async function deviceId() {
 export const useSession = create<SessionState>((set, get) => ({
   status: 'loading',
   user: null,
+  showAge: true,
+  justJoined: false,
   notice: null,
 
   async load() {
@@ -68,7 +74,7 @@ export const useSession = create<SessionState>((set, get) => ({
     realtime.start(token);
     api
       .me()
-      .then(({ user }) => get().setUser(user))
+      .then(({ user, showAge }) => get().setUser(user, showAge))
       .catch(() => {});
   },
 
@@ -85,18 +91,28 @@ export const useSession = create<SessionState>((set, get) => ({
       }
     }
     await setJson(USER_KEY, finalUser);
-    set({ status: 'signedIn', user: finalUser, notice: null });
+    set({ status: 'signedIn', user: finalUser, notice: null, justJoined: true, showAge: profile.showAge });
     realtime.start(token);
   },
 
-  setUser(user) {
-    set({ user });
+  setUser(user, showAge) {
+    set(showAge === undefined ? { user } : { user, showAge });
     void setJson(USER_KEY, user);
   },
 
   async updateProfile(patch) {
-    const { user } = await api.updateMe(patch);
-    get().setUser(user);
+    const { user, showAge } = await api.updateMe(patch);
+    get().setUser(user, showAge);
+  },
+
+  async checkAge(birthYear, estimatedAge) {
+    const result = await api.ageCheck(birthYear, estimatedAge);
+    get().setUser(result.user);
+    return { verified: result.verified, reason: result.reason };
+  },
+
+  finishJoining() {
+    set({ justJoined: false });
   },
 
   async setPhoto(base64) {

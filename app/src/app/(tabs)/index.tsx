@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useMemo, type ComponentProps } from 'react';
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { callFriend, clearMediaError, startMeeting, useCall } from '../../call/engine';
 import { AppText } from '../../components/AppText';
@@ -12,6 +13,7 @@ import { firstName, greeting } from '../../lib/format';
 import { useConnection } from '../../lib/realtime';
 import { useFriends } from '../../state/friends';
 import { useSession } from '../../state/session';
+import { useSettings } from '../../state/settings';
 import { colors, radius, space } from '../../theme';
 
 export default function MeetScreen() {
@@ -23,6 +25,8 @@ export default function MeetScreen() {
   const friends = useFriends((s) => s.friends);
   const onlineFriends = useMemo(() => friends.filter((f) => f.online && !f.busy), [friends]);
   const others = Math.max(0, online - 1);
+  const verifiedOnly = useSettings((s) => s.verifiedOnly);
+  const setVerifiedOnly = useSettings((s) => s.setVerifiedOnly);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -67,6 +71,36 @@ export default function MeetScreen() {
             style={{ alignSelf: 'stretch', marginTop: 4 }}
             accessibilityHint="Starts a video chat with a friendly person"
           />
+        </Card>
+
+        <Card style={styles.prefCard}>
+          <View style={styles.prefRow}>
+            <View style={styles.prefIcon}>
+              <Ionicons name="shield-checkmark" size={24} color={colors.verified} />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <AppText variant="bodyStrong">Only meet people with Verified Age</AppText>
+              <AppText variant="caption" color={colors.textMuted}>
+                {user?.ageVerified
+                  ? verifiedOnly
+                    ? 'You will only meet people who checked their age.'
+                    : 'Turn this on to only meet people who checked their age.'
+                  : 'Get your own Verified Age badge to use this.'}
+              </AppText>
+            </View>
+            {user?.ageVerified ? (
+              <Switch
+                value={verifiedOnly}
+                onValueChange={setVerifiedOnly}
+                trackColor={{ true: colors.primary, false: colors.border }}
+                thumbColor={colors.white}
+                accessibilityLabel="Only meet people with Verified Age"
+              />
+            ) : null}
+          </View>
+          {!user?.ageVerified ? (
+            <Button label="Get my Verified Age badge" icon="shield-checkmark" variant="soft" size="medium" onPress={() => router.push('/verify-age')} />
+          ) : null}
         </Card>
 
         {mediaError ? (
@@ -188,6 +222,23 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: colors.online,
+  },
+  prefCard: {
+    gap: 14,
+    paddingVertical: 16,
+  },
+  prefRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  prefIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: colors.verifiedSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   notice: {
     gap: 14,

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Linking, Pressable, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Switch, View } from 'react-native';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -11,6 +11,8 @@ import { ListRow } from '../../components/ListRow';
 import { PhotoSheet } from '../../components/PhotoSheet';
 import { Screen } from '../../components/Screen';
 import { ServerSheet } from '../../components/ServerSheet';
+import { VerifiedBadge } from '../../components/VerifiedBadge';
+import { languageName } from '../../lib/languages';
 import { appVersion, serverUrl } from '../../lib/config';
 import { useSession } from '../../state/session';
 import { useSettings, type TextSize } from '../../state/settings';
@@ -25,6 +27,7 @@ const SIZES: { id: TextSize; label: string; size: number }[] = [
 
 export default function ProfileScreen() {
   const user = useSession((s) => s.user);
+  const showAge = useSession((s) => s.showAge);
   const textSize = useSettings((s) => s.textSize);
   const setTextSize = useSettings((s) => s.setTextSize);
   const [photoSheet, setPhotoSheet] = useState(false);
@@ -70,6 +73,11 @@ export default function ProfileScreen() {
             {user.location}
           </AppText>
         ) : null}
+        {user.ageVerified ? (
+          <View style={{ marginTop: 8 }}>
+            <VerifiedBadge age={user.age} />
+          </View>
+        ) : null}
         <Button
           label="Edit my profile"
           icon="create-outline"
@@ -87,6 +95,12 @@ export default function ProfileScreen() {
             {user.about || 'Tell people a little about yourself. Tap Edit my profile.'}
           </AppText>
         </View>
+        <View style={{ gap: 4 }}>
+          <AppText variant="heading">Languages</AppText>
+          <AppText variant="body" color={user.languages.length ? colors.text : colors.textFaint}>
+            {user.languages.length ? user.languages.map(languageName).join(', ') : 'Not chosen yet.'}
+          </AppText>
+        </View>
         <View style={{ gap: 10 }}>
           <AppText variant="heading">What I enjoy</AppText>
           {user.interests.length ? (
@@ -101,6 +115,31 @@ export default function ProfileScreen() {
             </AppText>
           )}
         </View>
+      </Card>
+
+      <AppText variant="heading" style={styles.sectionTitle}>
+        Verified Age
+      </AppText>
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        {user.ageVerified ? (
+          <ListRow
+            icon="eye-outline"
+            label="Show my age to others"
+            detail={showAge ? 'People see your age next to your badge' : 'People only see the badge'}
+            last
+            right={
+              <Switch
+                value={showAge}
+                onValueChange={(value) => void useSession.getState().updateProfile({ showAge: value }).catch(() => toast('Something went wrong.', 'alert-circle'))}
+                trackColor={{ true: colors.primary, false: colors.border }}
+                thumbColor={colors.white}
+                accessibilityLabel="Show my age to others"
+              />
+            }
+          />
+        ) : (
+          <ListRow icon="shield-checkmark-outline" label="Get my Verified Age badge" detail="Takes less than a minute, no ID needed" onPress={() => router.push('/verify-age')} last />
+        )}
       </Card>
 
       <AppText variant="heading" style={styles.sectionTitle}>

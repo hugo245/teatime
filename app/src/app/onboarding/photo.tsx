@@ -19,7 +19,7 @@ export default function PhotoStep() {
 
   return (
     <OnboardingStep
-      step={3}
+      step={4}
       title="Add a photo of yourself"
       subtitle="A friendly photo helps people recognise you. You can change it later."
       footer={

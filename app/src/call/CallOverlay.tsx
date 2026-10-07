@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useKeepAwake } from 'expo-keep-awake';
-import { useEffect, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '../components/AppText';
 import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { InterestChip } from '../components/Chip';
+import { ProfileSheet } from '../components/ProfileSheet';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { StatusBarStyle } from '../components/StatusBarStyle';
 import { clock, firstName, talkDuration } from '../lib/format';
 import { interestLabels, joinWords } from '../lib/interests';
@@ -17,16 +19,21 @@ import {
   answerIncoming,
   callFriend,
   cancelOutgoing,
+  clearReaction,
+  closeTopic,
   cancelSearch,
   declineIncoming,
   dismissEnded,
   hangUp,
   reportPeer,
+  sendReaction,
+  showTopic,
   startMeeting,
   toggleCamera,
   toggleMic,
   useCall,
   type EndReason,
+  type Reaction,
 } from './engine';
 import { Pulse } from './Pulse';
 import { ReportSheet } from './ReportSheet';
@@ -134,6 +141,11 @@ function IncomingView() {
         <AppText variant="body" color="rgba(255,255,255,0.85)" center style={{ marginTop: 6 }}>
           {peer.location ? `Video call from ${peer.location}` : 'Video call'}
         </AppText>
+        {peer.ageVerified ? (
+          <View style={{ marginTop: 10 }}>
+            <VerifiedBadge age={peer.age} dark />
+          </View>
+        ) : null}
       </View>
       <View style={[styles.controlsRow, { justifyContent: 'space-evenly' }]}>
         <RoundButton icon="close" label="Not now" color={colors.danger} size={80} onPress={declineIncoming} />
@@ -161,8 +173,9 @@ function LiveTimer({ startedAt }: { startedAt: number }) {
 
 function InCallView() {
   const insets = useSafeAreaInsets();
-  const { phase, peer, remoteStream, localStream, micOn, cameraOn, friendship, sharedInterests, startedAt, peerReconnecting } = useCall();
+  const { phase, peer, remoteStream, localStream, micOn, cameraOn, friendship, sharedInterests, startedAt, peerReconnecting, topic, reaction } = useCall();
   const [reporting, setReporting] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(insets.top + 120);
   if (!peer) return null;
   const live = phase === 'live';
@@ -195,16 +208,25 @@ function InCallView() {
 
       <View style={[styles.topShade, { paddingTop: insets.top + 8 }]} onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
         <View style={styles.topRow}>
-          <View style={{ flex: 1, gap: 2 }}>
-            <AppText variant="title" color={colors.white} numberOfLines={1}>
-              {peer.name}
-            </AppText>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`See ${peer.name}'s profile`}
+            onPress={() => setProfileOpen(true)}
+            style={({ pressed }) => [{ flex: 1, gap: 2 }, pressed && { opacity: 0.7 }]}
+          >
+            <View style={styles.nameRow}>
+              <AppText variant="title" color={colors.white} numberOfLines={1} style={{ flexShrink: 1 }}>
+                {peer.name}
+              </AppText>
+              <Ionicons name="information-circle" size={24} color="rgba(255,255,255,0.85)" />
+            </View>
             {peer.location ? (
               <AppText variant="body" color="rgba(255,255,255,0.9)" numberOfLines={1}>
                 {peer.location}
               </AppText>
             ) : null}
-          </View>
+            {peer.ageVerified ? <VerifiedBadge age={peer.age} dark small /> : null}
+          </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Report ${peer.name}`}
@@ -252,6 +274,53 @@ function InCallView() {
       ) : null}
 
       <View style={[styles.bottomShade, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+        {topic ? (
+          <View style={styles.topicCard}>
+            <View style={styles.topicHeader}>
+              <Ionicons name="bulb" size={20} color={colors.accent} />
+              <AppText variant="caption" color={colors.textMuted} style={{ flex: 1 }}>
+                {topic.mine ? 'Something to talk about' : `${firstName(peer.name)} suggests`}
+              </AppText>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close topic" hitSlop={10} onPress={closeTopic}>
+                <Ionicons name="close" size={24} color={colors.textMuted} />
+              </Pressable>
+            </View>
+            <AppText variant="heading">{topic.text}</AppText>
+            <Button label="Another idea" icon="shuffle" variant="soft" size="small" onPress={showTopic} style={{ alignSelf: 'flex-start' }} />
+          </View>
+        ) : null}
+        {live ? (
+          <View style={styles.extrasRow}>
+            {!topic ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Show a topic to talk about"
+                onPress={showTopic}
+                style={({ pressed }) => [styles.topicButton, pressed && { opacity: 0.75 }]}
+              >
+                <Ionicons name="bulb" size={20} color={colors.white} />
+                <AppText variant="label" color={colors.white}>
+                  Topic idea
+                </AppText>
+              </Pressable>
+            ) : (
+              <View style={{ flex: 1 }} />
+            )}
+            {REACTIONS.map((item) => (
+              <Pressable
+                key={item.kind}
+                accessibilityRole="button"
+                accessibilityLabel={item.label}
+                onPress={() => sendReaction(item.kind)}
+                style={({ pressed }) => [styles.emojiButton, pressed && { transform: [{ scale: 0.92 }] }]}
+              >
+                <AppText scale={false} style={styles.emoji}>
+                  {item.emoji}
+                </AppText>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         {friendship === 'incoming' ? (
           <View style={styles.friendBanner}>
             <Avatar name={peer.name} photoUrl={peer.photoUrl} size={44} />
@@ -268,7 +337,44 @@ function InCallView() {
         </View>
       </View>
 
+      {reaction ? <FloatingReaction key={reaction.id} id={reaction.id} kind={reaction.kind} mine={reaction.mine} /> : null}
+
       <ReportSheet name={firstName(peer.name)} visible={reporting} onClose={() => setReporting(false)} onReport={reportPeer} />
+      <ProfileSheet user={peer} visible={profileOpen} onClose={() => setProfileOpen(false)} />
+    </View>
+  );
+}
+
+const REACTIONS: { kind: Reaction; emoji: string; label: string }[] = [
+  { kind: 'wave', emoji: '\u{1F44B}', label: 'Send a wave' },
+  { kind: 'heart', emoji: '\u{2764}\u{FE0F}', label: 'Send a heart' },
+  { kind: 'laugh', emoji: '\u{1F602}', label: 'Send a laugh' },
+  { kind: 'clap', emoji: '\u{1F44F}', label: 'Send applause' },
+];
+
+function FloatingReaction({ id, kind, mine }: { id: number; kind: Reaction; mine: boolean }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const emoji = REACTIONS.find((r) => r.kind === kind)?.emoji ?? '';
+
+  useEffect(() => {
+    Animated.timing(progress, { toValue: 1, duration: 2200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(() => clearReaction(id));
+  }, [id, progress]);
+
+  return (
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+      <Animated.View
+        style={{
+          opacity: progress.interpolate({ inputRange: [0, 0.15, 0.75, 1], outputRange: [0, 1, 1, 0] }),
+          transform: [
+            { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [120, -140] }) },
+            { scale: progress.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0.4, mine ? 1 : 1.4, mine ? 0.9 : 1.2] }) },
+          ],
+        }}
+      >
+        <AppText scale={false} style={{ fontSize: 120, lineHeight: 140 }}>
+          {emoji}
+        </AppText>
+      </Animated.View>
     </View>
   );
 }
@@ -303,6 +409,7 @@ function EndedView() {
   const insets = useSafeAreaInsets();
   const { peer, kind, endReason, startedAt, endedAt, friendship } = useCall();
   const [reporting, setReporting] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const name = peer ? firstName(peer.name) : 'They';
   const talked = startedAt && endedAt ? endedAt - startedAt : null;
   const copy = endedCopy(endReason, name, talked);
@@ -321,7 +428,12 @@ function EndedView() {
             </View>
           </View>
         ) : null}
-        <AppText variant="title" center accessibilityRole="header" style={{ marginTop: 20 }}>
+        {peer?.ageVerified && endReason !== 'reported' ? (
+          <View style={{ alignSelf: 'center', marginTop: 16 }}>
+            <VerifiedBadge age={peer.age} />
+          </View>
+        ) : null}
+        <AppText variant="title" center accessibilityRole="header" style={{ marginTop: 16 }}>
           {copy.title}
         </AppText>
         <AppText variant="body" color={colors.textMuted} center style={{ marginTop: 8 }}>
@@ -375,11 +487,15 @@ function EndedView() {
         ) : null}
         <Button label="Done" variant="secondary" onPress={dismissEnded} />
         {peer && endReason !== 'reported' && talked !== null ? (
+          <Button label={`See ${name}'s profile`} variant="ghost" size="small" onPress={() => setProfileOpen(true)} />
+        ) : null}
+        {peer && endReason !== 'reported' && talked !== null ? (
           <Button label={`Report ${name}`} variant="dangerGhost" size="small" onPress={() => setReporting(true)} />
         ) : null}
       </View>
 
       {peer ? <ReportSheet name={name} visible={reporting} onClose={() => setReporting(false)} onReport={reportPeer} /> : null}
+      <ProfileSheet user={peer} visible={profileOpen} onClose={() => setProfileOpen(false)} />
     </View>
   );
 }
@@ -502,6 +618,52 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     backgroundColor: 'rgba(17,24,20,0.42)',
     gap: 14,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  extrasRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: space.page,
+  },
+  topicButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 46,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 12,
+  },
+  emojiButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emoji: {
+    fontSize: 24,
+    lineHeight: 30,
+  },
+  topicCard: {
+    marginHorizontal: space.page,
+    padding: 16,
+    gap: 10,
+    borderRadius: radius.md,
+    backgroundColor: colors.white,
+  },
+  topicHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   friendBanner: {
     flexDirection: 'row',

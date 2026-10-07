@@ -6,7 +6,9 @@ import { api, type IceServer, type PublicUser, type ReportReason } from '../lib/
 import { realtime, type ServerMessage } from '../lib/realtime';
 import { CameraError, createPeer, openCamera, type RtcCandidate, type RtcDescription, type RtcPeer, type RtcStream } from '../rtc';
 import { useFriends } from '../state/friends';
+import { randomTopic } from '../lib/topics';
 import { useSession } from '../state/session';
+import { useSettings } from '../state/settings';
 import { closeDialog, toast } from '../state/ui';
 import { startRinging, stopRinging } from './ringer';
 
@@ -44,7 +46,11 @@ type CallState = {
   endReason: EndReason | null;
   peerReconnecting: boolean;
   mediaError: 'denied' | 'unavailable' | null;
+  topic: { text: string; index: number; mine: boolean } | null;
+  reaction: { id: number; kind: Reaction; mine: boolean } | null;
 };
+
+export type Reaction = 'wave' | 'heart' | 'laugh' | 'clap';
 
 const initialCall = {
   callId: null,
@@ -58,7 +64,11 @@ const initialCall = {
   endedAt: null,
   endReason: null,
   peerReconnecting: false,
+  topic: null,
+  reaction: null,
 };
+
+let reactionId = 0;
 
 export const useCall = create<CallState>(() => ({
   phase: 'idle',
@@ -152,8 +162,9 @@ function finish(reason: EndReason, notifyServer: boolean) {
   stopRinging();
   teardownPeer();
   releaseMedia();
-  set({ phase: 'ended', endReason: reason, endedAt: Date.now(), remoteStream: null, peerReconnecting: false });
+  set({ phase: 'ended', endReason: reason, endedAt: Date.now(), remoteStream: null, peerReconnecting: false, topic: null, reaction: null });
   if (reason !== 'you-left') haptic('warning');
+  void useFriends.getState().refresh();
 }
 
 function markLive() {
@@ -253,7 +264,7 @@ export async function startMeeting() {
   }
   set({ phase: 'searching' });
   haptic('light');
-  realtime.send({ type: 'meet.start' });
+  realtime.send({ type: 'meet.start', verifiedOnly: wantsVerified() });
 }
 
 export function cancelSearch() {
@@ -367,7 +378,7 @@ function handleMessage(message: ServerMessage) {
   const state = get();
   switch (message.type) {
     case 'hello': {
-      if (state.phase === 'searching') realtime.send({ type: 'meet.start' });
+      if (state.phase === 'searching') realtime.send({ type: 'meet.start', verifiedOnly: wantsVerified() });
       if ((state.phase === 'connecting' || state.phase === 'live') && message.activeCallId !== state.callId) {
         finish('disconnected', false);
       }
@@ -413,6 +424,8 @@ function handleMessage(message: ServerMessage) {
         startedAt: null,
         endReason: null,
         peerReconnecting: false,
+        topic: null,
+        reaction: null,
       });
       haptic('success');
       connectTimer = setTimeout(() => {
@@ -456,6 +469,17 @@ function handleMessage(message: ServerMessage) {
       finish(String(message.reason) as EndReason, false);
       return;
     }
+    case 'call.event': {
+      if (message.callId !== state.callId) return;
+      const event = message.event as { kind: string; text?: string; index?: number; reaction?: Reaction };
+      if (event.kind === 'topic' && event.text) set({ topic: { text: event.text, index: event.index ?? 0, mine: false } });
+      if (event.kind === 'topic-close') set({ topic: null });
+      if (event.kind === 'reaction' && event.reaction) {
+        set({ reaction: { id: ++reactionId, kind: event.reaction, mine: false } });
+        haptic('light');
+      }
+      return;
+    }
     case 'peer.reconnecting':
       if (message.callId === state.callId) set({ peerReconnecting: true });
       return;
@@ -485,6 +509,37 @@ function handleMessage(message: ServerMessage) {
 }
 
 realtime.subscribe(handleMessage);
+
+function wantsVerified() {
+  return useSettings.getState().verifiedOnly && !!useSession.getState().user?.ageVerified;
+}
+
+function sendEvent(event: Record<string, unknown>) {
+  const callId = get().callId;
+  if (callId && get().phase === 'live') realtime.send({ type: 'call.event', callId, event });
+}
+
+export function showTopic() {
+  const next = randomTopic(get().topic?.index);
+  set({ topic: { ...next, mine: true } });
+  sendEvent({ kind: 'topic', text: next.text, index: next.index });
+  haptic('light');
+}
+
+export function closeTopic() {
+  set({ topic: null });
+  sendEvent({ kind: 'topic-close' });
+}
+
+export function sendReaction(kind: Reaction) {
+  set({ reaction: { id: ++reactionId, kind, mine: true } });
+  sendEvent({ kind: 'reaction', reaction: kind });
+  haptic('light');
+}
+
+export function clearReaction(id: number) {
+  if (get().reaction?.id === id) set({ reaction: null });
+}
 
 export function resetCall() {
   stopRinging();

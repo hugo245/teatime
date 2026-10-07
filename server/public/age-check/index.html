@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>TeaTime age check</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; height: 100%; background: #F7F3EE; color: #1D2621; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; }
+    main { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 12px; }
+    .ring { position: relative; --s: min(72vw, 52vh, 300px); width: var(--s); height: var(--s); flex: none; border-radius: 50%; padding: 8px; background: #E6DFD4; }
+    .circle { width: 100%; height: 100%; border-radius: 50%; overflow: hidden; background: #26302B; }
+    video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+    #status { font-size: 22px; font-weight: 700; text-align: center; min-height: 58px; max-width: 340px; line-height: 1.3; }
+    .arrow { font-size: 40px; height: 44px; line-height: 44px; color: #2E6B4E; text-align: center; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="ring" id="ring">
+      <div class="circle"><video id="video" playsinline autoplay muted></video></div>
+    </div>
+    <div class="arrow" id="arrow"></div>
+    <div id="status">Getting ready</div>
+  </main>
+  <script src="face-api.js"></script>
+  <script>
+    (function () {
+      var SAMPLES = 8;
+      var TIMEOUT = 60000;
+      var NO_FACE_TIMEOUT = 40000;
+      var video = document.getElementById('video');
+      var statusEl = document.getElementById('status');
+      var arrowEl = document.getElementById('arrow');
+      var ring = document.getElementById('ring');
+      var stream = null;
+      var finished = false;
+
+      function send(message) {
+        var text = JSON.stringify(message);
+        if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(text);
+        else if (window.parent !== window) window.parent.postMessage({ teatimeAgeCheck: message }, '*');
+      }
+
+      function setStatus(text, arrow) {
+        statusEl.textContent = text;
+        arrowEl.textContent = arrow || '';
+      }
+
+      function setProgress(fraction) {
+        var p = Math.round(Math.min(1, fraction) * 100);
+        ring.style.background = 'conic-gradient(#2E6B4E ' + p + '%, #E6DFD4 0)';
+      }
+
+      function median(values) {
+        var sorted = values.slice().sort(function (a, b) { return a - b; });
+        var mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      }
+
+      function stopCamera() {
+        if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+        stream = null;
+      }
+
+      function end(message) {
+        if (finished) return;
+        finished = true;
+        stopCamera();
+        send(message);
+      }
+
+      function turnRatio(landmarks) {
+        var p = landmarks.positions;
+        var left = p[36];
+        var right = p[45];
+        var nose = p[30];
+        var width = right.x - left.x;
+        if (!width) return 0.5;
+        return (nose.x - left.x) / width;
+      }
+
+      function run() {
+        var options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
+        var ages = [];
+        var phase = 'straight';
+        var firstSide = null;
+        var opened = Date.now();
+        var started = 0;
+        var lastSeen = Date.now();
+        setStatus('Look straight at the camera');
+
+        function step() {
+          if (finished) return;
+          if ((started && Date.now() - started > TIMEOUT) || (!started && Date.now() - opened > NO_FACE_TIMEOUT)) {
+            setStatus('That took too long. Please try again in good light.');
+            return end({ type: 'timeout' });
+          }
+          faceapi.detectSingleFace(video, options).withFaceLandmarks(true).withAgeAndGender().then(function (result) {
+            if (!result || result.detection.score < 0.6) {
+              if (Date.now() - lastSeen > 4000) setStatus('We cannot see your face. Move into good light.');
+              return;
+            }
+            lastSeen = Date.now();
+            if (!started) started = Date.now();
+            var ratio = turnRatio(result.landmarks);
+            if (phase === 'straight') {
+              if (ratio > 0.35 && ratio < 0.65) {
+                ages.push(result.age);
+                setProgress((ages.length / SAMPLES) * 0.6);
+                setStatus('Keep looking at the camera');
+                if (ages.length >= SAMPLES) {
+                  phase = 'turn1';
+                  setStatus('Now slowly turn your head to one side', '↔');
+                }
+              } else {
+                setStatus('Look straight at the camera');
+              }
+            } else if (phase === 'turn1') {
+              if (ratio < 0.27 || ratio > 0.73) {
+                firstSide = ratio < 0.5 ? 'low' : 'high';
+                phase = 'turn2';
+                setProgress(0.8);
+                setStatus('Good. Now turn to the other side', '↔');
+              }
+            } else if (phase === 'turn2') {
+              if ((firstSide === 'low' && ratio > 0.73) || (firstSide === 'high' && ratio < 0.27)) {
+                setProgress(1);
+                setStatus('All done, thank you');
+                end({ type: 'result', age: median(ages), samples: ages.length, live: true });
+              }
+            }
+          }).catch(function () {
+            return null;
+          }).then(function () {
+            if (!finished) setTimeout(step, 120);
+          });
+        }
+        step();
+      }
+
+      function startCamera() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.reject(new Error('unsupported'));
+        return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } }, audio: false }).then(function (s) {
+          stream = s;
+          video.srcObject = s;
+          return video.play().catch(function () {});
+        }).then(function () {
+          return new Promise(function (resolve) {
+            if (video.readyState >= 2) return resolve();
+            video.onloadeddata = function () { resolve(); };
+          });
+        });
+      }
+
+      Promise.all([
+        faceapi.nets.ssdMobilenetv1.loadFromUri('models'),
+        faceapi.nets.faceLandmark68TinyNet.loadFromUri('models'),
+        faceapi.nets.ageGenderNet.loadFromUri('models')
+      ]).then(function () {
+        setStatus('Turning on your camera');
+        return startCamera().then(function () {
+          send({ type: 'ready' });
+          run();
+        }, function () {
+          setStatus('TeaTime could not use your camera.');
+          end({ type: 'nocamera' });
+        });
+      }).catch(function () {
+        setStatus('Something went wrong. Please try again.');
+        end({ type: 'error' });
+      });
+    })();
+  </script>
+</body>
+</html>

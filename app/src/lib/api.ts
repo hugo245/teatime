@@ -6,7 +6,10 @@ export type PublicUser = {
   location: string;
   about: string;
   interests: string[];
+  languages: string[];
   photoUrl: string | null;
+  ageVerified: boolean;
+  age: number | null;
 };
 
 export type Friend = PublicUser & {
@@ -14,6 +17,8 @@ export type Friend = PublicUser & {
   busy: boolean;
   lastSeen: number;
   since: number;
+  lastCallAt: number | null;
+  callCount: number;
 };
 
 export type FriendRequest = { user: PublicUser; createdAt: number };
@@ -32,6 +37,8 @@ export type ProfileInput = {
   location: string;
   about: string;
   interests: string[];
+  languages: string[];
+  showAge: boolean;
 };
 
 export type ReportReason = 'rude' | 'inappropriate' | 'money' | 'fake' | 'other';
@@ -101,8 +108,14 @@ export const api = {
   config: () => request<{ iceServers: IceServer[]; online: number; supportEmail: string }>('/api/config', { auth: false }),
   register: (profile: ProfileInput & { deviceId: string }) =>
     request<{ token: string; user: PublicUser }>('/api/register', { method: 'POST', body: profile, auth: false }),
-  me: () => request<{ user: PublicUser }>('/api/me'),
-  updateMe: (patch: Partial<ProfileInput>) => request<{ user: PublicUser }>('/api/me', { method: 'PATCH', body: patch }),
+  me: () => request<{ user: PublicUser; showAge: boolean }>('/api/me'),
+  updateMe: (patch: Partial<ProfileInput>) => request<{ user: PublicUser; showAge: boolean }>('/api/me', { method: 'PATCH', body: patch }),
+  ageCheck: (birthYear: number, estimatedAge: number) =>
+    request<{ verified: boolean; reason?: string; user: PublicUser }>('/api/me/age-check', {
+      method: 'POST',
+      body: { birthYear, estimatedAge, live: true },
+    }),
+  user: (id: string) => request<{ user: PublicUser }>(`/api/users/${id}`),
   uploadPhoto: (base64: string) => request<{ user: PublicUser }>('/api/me/photo', { method: 'PUT', body: { data: base64 } }),
   deletePhoto: () => request<{ user: PublicUser }>('/api/me/photo', { method: 'DELETE' }),
   deleteMe: () => request<{ ok: true }>('/api/me', { method: 'DELETE' }),

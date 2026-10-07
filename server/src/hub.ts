@@ -1,11 +1,24 @@
 import { randomUUID } from 'node:crypto';
-import type { WebSocket } from 'ws';
 import { toPublicUser, type Store, type User } from './store.js';
+
+export type HubSocket = {
+  readyState: number;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+};
+
+type Timer = ReturnType<typeof setTimeout>;
+
+function unref(timer: Timer) {
+  (timer as { unref?: () => void }).unref?.();
+  return timer;
+}
 
 type Client = {
   userId: string;
-  socket: WebSocket;
+  socket: HubSocket;
   lastActivity: number;
+  eventTimes: number[];
 };
 
 type CallKind = 'random' | 'friend';
@@ -17,12 +30,13 @@ type Call = {
   callee: string;
   state: 'ringing' | 'active';
   createdAt: number;
-  ringTimer?: NodeJS.Timeout;
+  ringTimer?: Timer;
 };
 
 type QueueEntry = {
   userId: string;
   since: number;
+  verifiedOnly: boolean;
 };
 
 export type HubOptions = {
@@ -41,9 +55,9 @@ export class Hub {
   private calls = new Map<string, Call>();
   private userCall = new Map<string, string>();
   private lastPartner = new Map<string, { peer: string; at: number }>();
-  private graceTimers = new Map<string, NodeJS.Timeout>();
-  private onlineTimer: NodeJS.Timeout | null = null;
-  private matchTimer: NodeJS.Timeout;
+  private graceTimers = new Map<string, Timer>();
+  private onlineTimer: Timer | null = null;
+  private matchTimer: Timer;
   private ringTimeoutMs: number;
   private reconnectGraceMs: number;
   private rematchCooldownMs: number;
@@ -57,8 +71,7 @@ export class Hub {
     this.reconnectGraceMs = options.reconnectGraceMs ?? 15_000;
     this.rematchCooldownMs = options.rematchCooldownMs ?? 120_000;
     this.rematchWaitMs = options.rematchWaitMs ?? 8_000;
-    this.matchTimer = setInterval(() => this.matchWaiting(), options.matchIntervalMs ?? 2_000);
-    this.matchTimer.unref();
+    this.matchTimer = unref(setInterval(() => this.matchWaiting(), options.matchIntervalMs ?? 2_000));
   }
 
   get onlineCount() {
@@ -73,7 +86,7 @@ export class Hub {
     return this.userCall.has(userId);
   }
 
-  attach(user: User, socket: WebSocket) {
+  attach(user: User, socket: HubSocket) {
     const previous = this.clients.get(user.id);
     const wasOnline = !!previous || this.graceTimers.has(user.id);
     const grace = this.graceTimers.get(user.id);
@@ -84,7 +97,7 @@ export class Hub {
     if (previous && previous.socket !== socket) {
       previous.socket.close(4000, 'replaced');
     }
-    const client: Client = { userId: user.id, socket, lastActivity: Date.now() };
+    const client: Client = { userId: user.id, socket, lastActivity: Date.now(), eventTimes: [] };
     this.clients.set(user.id, client);
     this.store.touch(user.id);
 
@@ -127,7 +140,7 @@ export class Hub {
       if (current) this.endCall(current, userId, 'disconnected');
       this.broadcastPresence(userId, false);
     }, this.reconnectGraceMs);
-    timer.unref();
+    unref(timer);
     this.graceTimers.set(userId, timer);
     this.scheduleOnlineBroadcast();
   }
@@ -147,7 +160,7 @@ export class Hub {
         this.send(userId, { type: 'pong' });
         return;
       case 'meet.start':
-        this.startMeeting(userId);
+        this.startMeeting(userId, message.verifiedOnly === true);
         return;
       case 'meet.stop':
         this.leaveQueue(userId);
@@ -169,6 +182,18 @@ export class Hub {
         }
         return;
       }
+      case 'call.event': {
+        const call = this.calls.get(String(message.callId ?? ''));
+        if (!call || call.state !== 'active') return;
+        if (call.caller !== userId && call.callee !== userId) return;
+        const now = Date.now();
+        client.eventTimes = client.eventTimes.filter((t) => now - t < 10_000);
+        if (client.eventTimes.length >= 15) return;
+        client.eventTimes.push(now);
+        const event = sanitizeEvent(message.event);
+        if (event) this.send(this.peerOf(call, userId), { type: 'call.event', callId: call.id, event });
+        return;
+      }
       case 'signal': {
         const call = this.calls.get(String(message.callId ?? ''));
         if (!call || call.state !== 'active') return;
@@ -182,7 +207,7 @@ export class Hub {
   sweep(idleMs: number) {
     const now = Date.now();
     for (const client of this.clients.values()) {
-      if (now - client.lastActivity > idleMs) client.socket.terminate();
+      if (now - client.lastActivity > idleMs) client.socket.close(4002, 'idle');
     }
   }
 
@@ -227,26 +252,28 @@ export class Hub {
     this.queue = this.queue.filter((entry) => entry.userId !== userId);
   }
 
-  private startMeeting(userId: string) {
+  private startMeeting(userId: string, wantsVerified: boolean) {
     if (this.userCall.has(userId)) {
       this.send(userId, { type: 'error', code: 'busy' });
       return;
     }
     this.leaveQueue(userId);
-    const partner = this.findPartner(userId, 0);
+    const verifiedOnly = wantsVerified && !!this.store.getUser(userId)?.ageVerified;
+    const entry: QueueEntry = { userId, since: Date.now(), verifiedOnly };
+    const partner = this.findPartner(entry, 0);
     if (partner) {
       this.leaveQueue(partner.userId);
       this.connectPair(userId, partner.userId);
       return;
     }
-    this.queue.push({ userId, since: Date.now() });
-    this.send(userId, { type: 'meet.searching', online: this.onlineCount });
+    this.queue.push(entry);
+    this.send(userId, { type: 'meet.searching', online: this.onlineCount, verifiedOnly });
   }
 
   private matchWaiting() {
     for (const entry of [...this.queue]) {
       if (!this.queue.includes(entry)) continue;
-      const partner = this.findPartner(entry.userId, Date.now() - entry.since);
+      const partner = this.findPartner(entry, Date.now() - entry.since);
       if (!partner) continue;
       this.leaveQueue(entry.userId);
       this.leaveQueue(partner.userId);
@@ -254,7 +281,8 @@ export class Hub {
     }
   }
 
-  private findPartner(userId: string, waitedMs: number): QueueEntry | null {
+  private findPartner(mine: QueueEntry, waitedMs: number): QueueEntry | null {
+    const userId = mine.userId;
     const me = this.store.getUser(userId);
     if (!me) return null;
     const now = Date.now();
@@ -271,6 +299,9 @@ export class Hub {
       if (metJustNow && Math.max(waitedMs, now - entry.since) < this.rematchWaitMs) continue;
       const other = this.store.getUser(entry.userId);
       if (!other || other.banned) continue;
+      if (mine.verifiedOnly && !other.ageVerified) continue;
+      if (entry.verifiedOnly && !me.ageVerified) continue;
+      if (me.languages.length && other.languages.length && !me.languages.some((l) => other.languages.includes(l))) continue;
       const shared = other.interests.filter((i) => me.interests.includes(i)).length;
       if (!best || shared > best.shared) best = { entry, shared };
     }
@@ -327,8 +358,7 @@ export class Hub {
       state: 'ringing',
       createdAt: Date.now(),
     };
-    call.ringTimer = setTimeout(() => this.endCall(call, calleeId, 'no-answer'), this.ringTimeoutMs);
-    call.ringTimer.unref();
+    call.ringTimer = unref(setTimeout(() => this.endCall(call, calleeId, 'no-answer'), this.ringTimeoutMs));
     this.calls.set(call.id, call);
     this.userCall.set(callerId, call.id);
     this.userCall.set(calleeId, call.id);
@@ -404,6 +434,21 @@ export class Hub {
         if (client.socket.readyState === OPEN) client.socket.send(payload);
       }
     }, 1500);
-    this.onlineTimer.unref();
+    unref(this.onlineTimer);
   }
+}
+
+const REACTIONS = new Set(['wave', 'heart', 'laugh', 'clap', 'tea']);
+
+function sanitizeEvent(value: unknown): Record<string, string | number> | null {
+  if (!value || typeof value !== 'object') return null;
+  const event = value as Record<string, unknown>;
+  if (event.kind === 'reaction' && typeof event.reaction === 'string' && REACTIONS.has(event.reaction)) {
+    return { kind: 'reaction', reaction: event.reaction };
+  }
+  if (event.kind === 'topic' && typeof event.text === 'string' && event.text.length <= 200) {
+    return { kind: 'topic', text: event.text, index: Number(event.index) || 0 };
+  }
+  if (event.kind === 'topic-close') return { kind: 'topic-close' };
+  return null;
 }

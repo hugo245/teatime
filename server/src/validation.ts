@@ -105,12 +105,51 @@ export function parseReportReason(value: unknown): ReportReason {
   throw new ValidationError('reason', 'Please choose a reason.');
 }
 
-export function parseJpeg(value: unknown): Buffer {
+export function parseJpeg(value: unknown): Uint8Array {
   if (typeof value !== 'string') throw new ValidationError('photo', 'Photo is missing.');
   const base64 = value.replace(/^data:image\/jpeg;base64,/, '');
-  const data = Buffer.from(base64, 'base64');
+  let data: Uint8Array;
+  try {
+    data = Uint8Array.from(atob(base64.replace(/\s/g, '')), (c) => c.charCodeAt(0));
+  } catch {
+    throw new ValidationError('photo', 'Photo is missing.');
+  }
   if (data.length < 100) throw new ValidationError('photo', 'Photo is missing.');
   if (data.length > 600 * 1024) throw new ValidationError('photo', 'Photo is too large.');
   if (data[0] !== 0xff || data[1] !== 0xd8) throw new ValidationError('photo', 'Photo must be a JPEG image.');
   return data;
+}
+
+export const LANGUAGE_CODES = ['en', 'nl', 'de', 'fr', 'es', 'it', 'pt', 'pl', 'sv', 'da', 'no', 'fi', 'tr', 'el', 'ar', 'zh', 'hi', 'ja', 'ru', 'uk'];
+
+export function parseLanguages(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item === 'string' && LANGUAGE_CODES.includes(item) && !result.includes(item)) result.push(item);
+  }
+  return result.slice(0, 6);
+}
+
+export function parseBirthYear(value: unknown): number {
+  const year = Number(value);
+  const now = new Date().getUTCFullYear();
+  if (!Number.isInteger(year) || year < now - 110 || year > now) {
+    throw new ValidationError('birthYear', 'Please enter the year you were born.');
+  }
+  if (now - year < 18) throw new ValidationError('birthYear', 'TeaTime is only for adults.');
+  return year;
+}
+
+export function checkAgeEstimate(claimedAge: number, estimatedAge: number): { ok: boolean; reason?: string } {
+  if (!Number.isFinite(estimatedAge) || estimatedAge <= 0 || estimatedAge > 120) {
+    return { ok: false, reason: 'We could not see your face clearly. Please try again in good light.' };
+  }
+  const below = claimedAge >= 55 ? 18 : 12;
+  const above = 12;
+  if (estimatedAge < 16) return { ok: false, reason: 'TeaTime is only for adults.' };
+  if (estimatedAge < claimedAge - below || estimatedAge > claimedAge + above) {
+    return { ok: false, reason: 'The age you entered does not match your photo. Please check the year you were born and try again in good light.' };
+  }
+  return { ok: true };
 }

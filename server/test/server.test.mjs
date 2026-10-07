@@ -6,6 +6,10 @@ let server;
 let base;
 
 before(async () => {
+  if (process.env.BASE_URL) {
+    base = process.env.BASE_URL;
+    return;
+  }
   server = createTeaTimeServer({
     databaseFile: ':memory:',
     iceServers: [{ urls: 'stun:stun.example.org:3478' }],
@@ -18,7 +22,7 @@ before(async () => {
 });
 
 after(async () => {
-  await server.close();
+  await server?.close();
 });
 
 async function api(path, { token, method = 'GET', body } = {}) {
@@ -327,6 +331,118 @@ describe('meeting and calls', () => {
     const ended = await staying.next('call.ended', 2000);
     assert.equal(ended.reason, 'disconnected');
     await staying.close();
+  });
+});
+
+describe('new features', () => {
+  const year = new Date().getUTCFullYear();
+
+  async function meet(a, b, extraA = {}, extraB = {}) {
+    a.send({ type: 'meet.start', ...extraA });
+    await a.next('meet.searching');
+    b.send({ type: 'meet.start', ...extraB });
+    return [await a.next('call.start'), await b.next('call.start')];
+  }
+
+  test('age check gives the Verified Age badge only when the face matches', async () => {
+    const { token } = await register('Beatrice');
+    const mismatch = await api('/api/me/age-check', { token, method: 'POST', body: { birthYear: year - 74, estimatedAge: 28, live: true } });
+    assert.equal(mismatch.body.verified, false);
+    assert.equal(mismatch.body.user.ageVerified, false);
+    const child = await api('/api/me/age-check', { token, method: 'POST', body: { birthYear: year - 12, estimatedAge: 12, live: true } });
+    assert.equal(child.status, 400);
+    const notLive = await api('/api/me/age-check', { token, method: 'POST', body: { birthYear: year - 74, estimatedAge: 70 } });
+    assert.equal(notLive.status, 400);
+    const ok = await api('/api/me/age-check', { token, method: 'POST', body: { birthYear: year - 74, estimatedAge: 63, live: true } });
+    assert.equal(ok.body.verified, true);
+    assert.equal(ok.body.user.ageVerified, true);
+    assert.equal(ok.body.user.age, 74);
+    const hidden = await api('/api/me', { token, method: 'PATCH', body: { showAge: false } });
+    assert.equal(hidden.body.user.age, null);
+    assert.equal(hidden.body.user.ageVerified, true);
+  });
+
+  test('verified only searches skip people without the badge', async () => {
+    const v = await register('Vera');
+    const u = await register('Ursula');
+    const w = await register('Wilma');
+    for (const p of [v, w]) {
+      await api('/api/me/age-check', { token: p.token, method: 'POST', body: { birthYear: year - 70, estimatedAge: 66, live: true } });
+    }
+    const vera = await connect(v.token);
+    const ursula = await connect(u.token);
+    const wilma = await connect(w.token);
+    vera.send({ type: 'meet.start', verifiedOnly: true });
+    await vera.next('meet.searching');
+    ursula.send({ type: 'meet.start' });
+    await ursula.next('meet.searching');
+    wilma.send({ type: 'meet.start' });
+    const start = await wilma.next('call.start');
+    assert.equal(start.peer.name, 'Vera');
+    assert.equal(start.peer.ageVerified, true);
+    await vera.close();
+    await ursula.close();
+    await wilma.close();
+  });
+
+  test('people without a shared language are not matched', async () => {
+    const a = await register('Anke', { languages: ['nl'] });
+    const b = await register('Bill', { languages: ['en'] });
+    const c = await register('Corrie', { languages: ['nl', 'en'] });
+    const anke = await connect(a.token);
+    const bill = await connect(b.token);
+    const corrie = await connect(c.token);
+    anke.send({ type: 'meet.start' });
+    await anke.next('meet.searching');
+    bill.send({ type: 'meet.start' });
+    await bill.next('meet.searching');
+    corrie.send({ type: 'meet.start' });
+    const start = await corrie.next('call.start');
+    assert.ok(['Anke', 'Bill'].includes(start.peer.name));
+    assert.deepEqual(start.peer.languages, start.peer.name === 'Anke' ? ['nl'] : ['en']);
+    await anke.close();
+    await bill.close();
+    await corrie.close();
+  });
+
+  test('relays topics and reactions, shares profiles and counts calls', async () => {
+    const a = await register('Elsie', { about: 'I love my roses' });
+    const b = await register('Frank');
+    const elsie = await connect(a.token);
+    const frank = await connect(b.token);
+    const [startA] = await meet(elsie, frank);
+    elsie.send({ type: 'call.event', callId: startA.callId, event: { kind: 'topic', text: 'What was your first job?', index: 3 } });
+    const topic = await frank.next('call.event');
+    assert.deepEqual(topic.event, { kind: 'topic', text: 'What was your first job?', index: 3 });
+    elsie.send({ type: 'call.event', callId: startA.callId, event: { kind: 'reaction', reaction: 'wave' } });
+    assert.equal((await frank.next('call.event')).event.reaction, 'wave');
+    elsie.send({ type: 'call.event', callId: startA.callId, event: { kind: 'reaction', reaction: 'evil' } });
+
+    const profile = await api(`/api/users/${a.user.id}`, { token: b.token });
+    assert.equal(profile.body.user.about, 'I love my roses');
+
+    await api(`/api/friends/${b.user.id}`, { token: a.token, method: 'POST' });
+    await api(`/api/friends/${a.user.id}`, { token: b.token, method: 'POST' });
+    const friends = await api('/api/friends', { token: a.token });
+    assert.equal(friends.body.friends[0].callCount, 1);
+    assert.ok(friends.body.friends[0].lastCallAt > 0);
+    elsie.send({ type: 'call.hangup', callId: startA.callId });
+    await frank.next('call.ended');
+    await elsie.close();
+    await frank.close();
+  });
+
+  test('profiles of strangers stay private', async () => {
+    const a = await register('Private');
+    const b = await register('Curious');
+    const res = await api(`/api/users/${a.user.id}`, { token: b.token });
+    assert.equal(res.status, 404);
+  });
+
+  test('serves the age check page', async () => {
+    const page = await fetch(base + '/age-check/');
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /face-api/);
   });
 });
 

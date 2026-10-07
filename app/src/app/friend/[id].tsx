@@ -1,5 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { callFriend } from '../../call/engine';
 import { ReportSheet } from '../../call/ReportSheet';
@@ -9,6 +10,10 @@ import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { InterestChip } from '../../components/Chip';
 import { Screen } from '../../components/Screen';
+import { TextField } from '../../components/TextField';
+import { VerifiedBadge } from '../../components/VerifiedBadge';
+import { languageName } from '../../lib/languages';
+import { getItem, setItem } from '../../lib/storage';
 import { api } from '../../lib/api';
 import { firstName, timeAgo } from '../../lib/format';
 import { useFriends } from '../../state/friends';
@@ -79,6 +84,11 @@ export default function FriendScreen() {
             {friend.location}
           </AppText>
         ) : null}
+        {friend.ageVerified ? (
+          <View style={{ marginTop: 8 }}>
+            <VerifiedBadge age={friend.age} />
+          </View>
+        ) : null}
         <AppText variant="label" color={friend.online ? colors.online : colors.textMuted} center style={{ marginTop: 6 }}>
           {status}
         </AppText>
@@ -96,13 +106,41 @@ export default function FriendScreen() {
         </AppText>
       ) : null}
 
-      {friend.about || friend.interests.length ? (
+      <Card style={{ marginTop: space.xl, gap: 6 }}>
+        <View style={styles.historyRow}>
+          <Ionicons name="time-outline" size={24} color={colors.primary} />
+          <AppText variant="bodyStrong" style={{ flex: 1 }}>
+            {friend.callCount === 0
+              ? `You have not had a video chat with ${name} yet`
+              : friend.callCount === 1
+                ? `You have talked with ${name} once`
+                : `You have talked with ${name} ${friend.callCount} times`}
+          </AppText>
+        </View>
+        {friend.lastCallAt ? (
+          <AppText variant="caption" color={colors.textMuted} style={{ marginLeft: 36 }}>
+            Your last chat was {timeAgo(friend.lastCallAt)}
+          </AppText>
+        ) : null}
+      </Card>
+
+      <FriendNotes id={friend.id} name={name} />
+
+      {friend.about || friend.languages.length || friend.interests.length ? (
         <Card style={{ marginTop: space.xl, gap: 14 }}>
           {friend.about ? (
             <View style={{ gap: 4 }}>
               <AppText variant="heading">About {name}</AppText>
               <AppText variant="body" color={colors.textMuted}>
                 {friend.about}
+              </AppText>
+            </View>
+          ) : null}
+          {friend.languages.length ? (
+            <View style={{ gap: 4 }}>
+              <AppText variant="heading">{name} speaks</AppText>
+              <AppText variant="body" color={colors.textMuted}>
+                {friend.languages.map(languageName).join(', ')}
               </AppText>
             </View>
           ) : null}
@@ -140,7 +178,54 @@ export default function FriendScreen() {
   );
 }
 
+function FriendNotes({ id, name }: { id: string; name: string }) {
+  const [text, setText] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    void getItem(`notes:${id}`).then((value) => {
+      setText(value ?? '');
+      setLoaded(true);
+    });
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [id]);
+
+  const change = (value: string) => {
+    setText(value);
+    setSaved(false);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      void setItem(`notes:${id}`, value).then(() => setSaved(true));
+    }, 600);
+  };
+
+  if (!loaded) return null;
+  return (
+    <Card style={{ marginTop: space.lg, gap: 10 }}>
+      <AppText variant="heading">My notes about {name}</AppText>
+      <TextField
+        value={text}
+        onChangeText={change}
+        multiline
+        maxLength={1000}
+        placeholder={`For example: ${name} has a grandson called Tom and loves roses.`}
+        hint={saved ? 'Saved. Only you can see these notes.' : 'Only you can see these notes.'}
+        accessibilityLabel={`My notes about ${name}`}
+      />
+    </Card>
+  );
+}
+
 const styles = StyleSheet.create({
+  historyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   top: {
     alignItems: 'center',
     marginBottom: space.xl,

@@ -13,7 +13,7 @@ type Props = {
   footer: ReactNode;
 };
 
-export function OnboardingStep({ step, total = 5, title, subtitle, children, footer }: Props) {
+export function OnboardingStep({ step, total = 6, title, subtitle, children, footer }: Props) {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <Screen back footer={footer}>

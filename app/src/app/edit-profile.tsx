@@ -5,6 +5,8 @@ import { AppText } from '../components/AppText';
 import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { InterestChip } from '../components/Chip';
+import { LanguageChip } from '../components/LanguageChip';
+import { LANGUAGES } from '../lib/languages';
 import { PhotoSheet } from '../components/PhotoSheet';
 import { Screen } from '../components/Screen';
 import { TextField } from '../components/TextField';
@@ -20,6 +22,7 @@ export default function EditProfileScreen() {
   const [location, setLocation] = useState(user?.location ?? '');
   const [about, setAbout] = useState(user?.about ?? '');
   const [interests, setInterests] = useState<string[]>(user?.interests ?? []);
+  const [languages, setLanguages] = useState<string[]>(user?.languages ?? []);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [photoSheet, setPhotoSheet] = useState(false);
@@ -37,7 +40,7 @@ export default function EditProfileScreen() {
     setSaving(true);
     setErrors({});
     try {
-      await useSession.getState().updateProfile({ name, location, about, interests });
+      await useSession.getState().updateProfile({ name, location, about, interests, languages });
       toast('Your profile has been saved');
       router.back();
     } catch (e) {
@@ -84,6 +87,23 @@ export default function EditProfileScreen() {
             hint={`${about.length} of 200 letters`}
             error={errors.about}
           />
+          <View style={{ gap: 12 }}>
+            <AppText variant="label">Languages I speak</AppText>
+            <View style={styles.chips}>
+              {LANGUAGES.map((language) => (
+                <LanguageChip
+                  key={language.code}
+                  code={language.code}
+                  selected={languages.includes(language.code)}
+                  onPress={() =>
+                    setLanguages((list) =>
+                      list.includes(language.code) ? list.filter((l) => l !== language.code) : list.length >= 6 ? list : [...list, language.code],
+                    )
+                  }
+                />
+              ))}
+            </View>
+          </View>
           <View style={{ gap: 12 }}>
             <AppText variant="label">What I enjoy</AppText>
             <View style={styles.chips}>

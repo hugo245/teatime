@@ -14,7 +14,7 @@ export default function InterestsStep() {
 
   return (
     <OnboardingStep
-      step={4}
+      step={5}
       title="What do you enjoy?"
       subtitle="Tap a few things you like. We will tell you when you have something in common."
       footer={

@@ -7,7 +7,9 @@ import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
+import { ProfileSheet } from '../../components/ProfileSheet';
 import { Screen } from '../../components/Screen';
+import { VerifiedBadge } from '../../components/VerifiedBadge';
 import type { Friend, PublicUser } from '../../lib/api';
 import { firstName, timeAgo } from '../../lib/format';
 import { useFriends } from '../../state/friends';
@@ -89,6 +91,7 @@ function Section({ title, subtitle, children }: { title?: string; subtitle?: str
 function statusText(friend: Friend) {
   if (friend.busy) return { text: 'In a call', color: colors.accent };
   if (friend.online) return { text: 'Here now', color: colors.online };
+  if (friend.lastCallAt) return { text: `Last chat ${timeAgo(friend.lastCallAt)}`, color: colors.textMuted };
   return { text: `Last here ${timeAgo(friend.lastSeen)}`, color: colors.textMuted };
 }
 
@@ -107,6 +110,7 @@ function FriendRow({ friend, last }: { friend: Friend; last: boolean }) {
         <AppText variant="heading" numberOfLines={1}>
           {friend.name}
         </AppText>
+        {friend.ageVerified ? <VerifiedBadge small /> : null}
         <AppText variant="caption" color={status.color}>
           {status.text}
         </AppText>
@@ -188,17 +192,27 @@ function RequestCard({ user }: { user: PublicUser }) {
 
 function RecentRow({ user, metAt, requested, last }: { user: PublicUser; metAt: number; requested: boolean; last: boolean }) {
   const [sending, setSending] = useState(false);
+  const [open, setOpen] = useState(false);
   return (
     <View style={[styles.row, !last && styles.divider]}>
-      <Avatar name={user.name} photoUrl={user.photoUrl} size={52} />
-      <View style={{ flex: 1, gap: 2 }}>
-        <AppText variant="bodyStrong" numberOfLines={1}>
-          {user.name}
-        </AppText>
-        <AppText variant="caption" color={colors.textMuted}>
-          You talked {timeAgo(metAt)}
-        </AppText>
-      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`See ${user.name}'s profile`}
+        onPress={() => setOpen(true)}
+        style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 14 }, pressed && { opacity: 0.7 }]}
+      >
+        <Avatar name={user.name} photoUrl={user.photoUrl} size={52} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <AppText variant="bodyStrong" numberOfLines={1}>
+            {user.name}
+          </AppText>
+          {user.ageVerified ? <VerifiedBadge small /> : null}
+          <AppText variant="caption" color={colors.textMuted}>
+            You talked {timeAgo(metAt)}
+          </AppText>
+        </View>
+      </Pressable>
+      <ProfileSheet user={user} visible={open} onClose={() => setOpen(false)} />
       {requested ? (
         <View style={styles.sentTag}>
           <Ionicons name="checkmark" size={18} color={colors.primary} />

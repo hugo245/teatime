@@ -11,7 +11,7 @@ export default function PlaceStep() {
 
   const next = (value: string) => {
     useOnboarding.getState().set({ location: value.trim().replace(/\s+/g, ' ') });
-    router.push('/onboarding/photo');
+    router.push('/onboarding/languages');
   };
 
   return (

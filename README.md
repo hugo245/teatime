@@ -16,18 +16,32 @@ The app has three tabs:
 
 During a call there are four large buttons with labels: Mute, Camera, Add friend and End call. A Report button sits at the top.
 
+### Features
+
+* **Verified Age badge.** Type the year you were born, look at the camera and slowly turn your head to each side. A face model on the phone estimates your age, and if it matches you get the badge. No ID, nothing to pay, and your face is never saved or sent anywhere. Photos do not work because a photo cannot turn its head. Anyone can skip it.
+* **Only meet verified people.** People with the badge can switch on "Only meet people with Verified Age" on the Meet tab.
+* **Same language matching.** You pick the languages you speak, and TeaTime only matches people who share one.
+* **Something to talk about.** During a call, tap Topic idea and both of you see the same friendly question, such as "What was your very first job?"
+* **Reactions.** Send a wave, a heart, a laugh or applause with one tap. It floats up big on the other screen.
+* **See who you are talking to.** Tap the person's name during a call, or after the call, to see their profile.
+* **Notes about friends.** Write private notes on a friend's page, like "grandson Tom, loves roses", so you remember next time.
+* **Call history.** Each friend's page shows how often you have talked and when you last chatted.
+* **Safety.** Report and block from every call, community rules on sign up, profile text checks against scams, and automatic removal of people who get reported.
+
 | Meet | In a call |
 | --- | --- |
 | ![Meet tab on two simulated iPhones](docs/meet.png) | ![A video call between two simulated iPhones](docs/call.png) |
 | **After a call** | **Friends** |
 | ![The screen after a call](docs/after-call.png) | ![The Friends tab](docs/friends.png) |
+| **Age check** | **Verified Age** |
+| ![The live age check camera](docs/age-check.png) | ![The Verified Age badge](docs/verified.png) |
 
 ## What is in this repository
 
 | Folder | What it is |
 | --- | --- |
 | `app/` | The iPhone app, built with Expo (React Native) and WebRTC for video |
-| `server/` | The TeaTime server: accounts, matching, friends, call signaling and moderation |
+| `server/` | The TeaTime server: accounts, matching, friends, call signaling, moderation and the age check page. Runs on Cloudflare, Docker or plain Node.js |
 | `simulator/` | Two simulated iPhones in your browser, each running the real app |
 | `.github/workflows/ios.yml` | Builds `TeaTime.ipa` on a GitHub Mac and publishes it as a release |
 | `.github/workflows/ci.yml` | Runs the server tests, the app type check, the web build and a Docker smoke test |
@@ -79,9 +93,30 @@ The app talks to a TeaTime server to find people and set up calls.
 
 To change the server inside the app later, open **Profile** and hold your finger on the version number for two seconds.
 
-## Put the server online
+## Put TeaTime online for free
 
-The server is a small Node.js program with a SQLite database. It needs HTTPS in front of it, which hosts like Render and Fly.io add for you.
+TeaTime runs on Cloudflare's free plan, so everybody's app connects to one global server. No credit card is needed, it stays online all the time, and profiles and friends are saved for good.
+
+1. Make a free account at [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up).
+2. In Terminal, in the teatime folder:
+   ```bash
+   git pull
+   cd server
+   npm install
+   npx wrangler login
+   npx wrangler deploy
+   ```
+   `wrangler login` opens your browser to approve. The first deploy asks you to pick a name for your `workers.dev` address.
+3. The last line shows your server address, for example `https://teatime.yourname.workers.dev`. Open it with `/health` at the end to check it works.
+4. Put that address in the app. On GitHub open **Settings, Secrets and variables, Actions, Variables**, add `TEATIME_SERVER_URL` with your address, then run the **iOS build** workflow again from the Actions tab. The new `TeaTime.ipa` connects to your server by itself, so nobody has to type an address.
+
+To update the server later, run `npx wrangler deploy` again in the `server` folder. To set a password for the moderation tools, run `npx wrangler secret put ADMIN_TOKEN`.
+
+The free plan comfortably covers a school project or a small community. Very busy days can reach the daily free limit, after which Cloudflare pauses the server until the next day.
+
+## Run the server yourself
+
+The same server also runs as a normal Node.js program with a SQLite database, for example on your own computer or with Docker. It needs HTTPS in front of it when phones connect over the internet.
 
 **With Docker**
 
@@ -115,6 +150,7 @@ Video goes straight from one phone to the other. On some mobile and office netwo
 
 ## Safety and moderation
 
+* **Verified Age** uses a live camera check with head turns, so a photo of someone else does not pass. Face age estimates are never exact, so the check allows a margin, and a wider one for older faces.
 * **Report** is always one tap away during a call. It ends the call, blocks that person and stores the report.
 * **Block** from a friend's page. Blocked people can never be matched with you or call you.
 * When three different people report someone within a week, that account is removed automatically and that phone cannot sign up again.
