@@ -6,3 +6,5 @@ node_modules/
 !.env.example
 server/dist/
 server/data/
+.wrangler/
+worker-build/
