@@ -89,7 +89,7 @@ The app talks to a TeaTime server to find people and set up calls.
 
 **Quick test on your home Wi-Fi.** Run `npm run simulator` on your computer. The terminal prints an address such as `http://192.168.1.20:8080`. Open TeaTime on the iPhone, tap **Get started** and type that address. Allow **Local Network** when the iPhone asks. Your real iPhone can now meet and call the simulated phones.
 
-**Real use.** Put the server online (see below). Then on GitHub open **Settings, Secrets and variables, Actions, Variables** and add a variable named `TEATIME_SERVER_URL` with your server address, for example `https://teatime.example.com`. Run the **iOS build** workflow again from the Actions tab. The new `TeaTime.ipa` connects to your server by itself.
+**Real use.** Put the server online (see below). Then set it as the default in `app/app.config.ts`, or on GitHub open **Settings, Secrets and variables, Actions, Variables** and add a variable named `TEATIME_SERVER_URL` with your server address, for example `https://teatime.example.com`. Run the **iOS build** workflow again from the Actions tab. The new `TeaTime.ipa` connects to your server by itself.
 
 To change the server inside the app later, open **Profile** and hold your finger on the version number for two seconds.
 

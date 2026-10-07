@@ -14,6 +14,8 @@ import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { CallOverlay } from '../call/CallOverlay';
 import { refreshIceServers, resetCall } from '../call/engine';
 import { ConnectionBanner, DialogHost, ToastHost } from '../components/Overlays';
+import { AppText } from '../components/AppText';
+import { Button } from '../components/Button';
 import { StatusBarStyle } from '../components/StatusBarStyle';
 import { isSimulator, postToSimulator } from '../lib/sim';
 import { useFriends } from '../state/friends';
@@ -28,6 +30,21 @@ const SIM_INSETS = { top: 59, bottom: 34, left: 0, right: 0 };
 function SimulatorInsets({ children }: { children: ReactNode }) {
   if (!isSimulator) return <>{children}</>;
   return <SafeAreaInsetsContext.Provider value={SIM_INSETS}>{children}</SafeAreaInsetsContext.Provider>;
+}
+
+export function ErrorBoundary({ retry }: { error: Error; retry: () => Promise<void> }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 }}>
+      <Ionicons name="cafe" size={56} color={colors.primary} />
+      <AppText variant="title" center>
+        Something went wrong
+      </AppText>
+      <AppText variant="body" color={colors.textMuted} center>
+        Sorry about that. Please tap the button to try again.
+      </AppText>
+      <Button label="Try again" icon="refresh" onPress={() => void retry()} style={{ alignSelf: 'stretch' }} />
+    </View>
+  );
 }
 
 export default function RootLayout() {

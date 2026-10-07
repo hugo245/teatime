@@ -12,6 +12,37 @@ export type PublicUser = {
   age: number | null;
 };
 
+export function normalizeUser<T extends Partial<PublicUser>>(raw: T): T & PublicUser {
+  return {
+    ...raw,
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    location: raw.location ?? '',
+    about: raw.about ?? '',
+    interests: Array.isArray(raw.interests) ? raw.interests : [],
+    languages: Array.isArray(raw.languages) ? raw.languages : [],
+    photoUrl: raw.photoUrl ?? null,
+    ageVerified: raw.ageVerified === true,
+    age: typeof raw.age === 'number' ? raw.age : null,
+  };
+}
+
+function normalizeFriends(data: FriendsPayload): FriendsPayload {
+  return {
+    friends: (data.friends ?? []).map((f) => ({
+      ...normalizeUser(f),
+      lastCallAt: f.lastCallAt ?? null,
+      callCount: f.callCount ?? 0,
+    })),
+    requests: (data.requests ?? []).map((r) => ({ ...r, user: normalizeUser(r.user) })),
+    recent: (data.recent ?? []).map((r) => ({ ...r, user: normalizeUser(r.user) })),
+  };
+}
+
+function withUser<T extends { user: PublicUser }>(data: T): T {
+  return { ...data, user: normalizeUser(data.user) };
+}
+
 export type Friend = PublicUser & {
   online: boolean;
   busy: boolean;
@@ -107,22 +138,23 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
 export const api = {
   config: () => request<{ iceServers: IceServer[]; online: number; supportEmail: string }>('/api/config', { auth: false }),
   register: (profile: ProfileInput & { deviceId: string }) =>
-    request<{ token: string; user: PublicUser }>('/api/register', { method: 'POST', body: profile, auth: false }),
-  me: () => request<{ user: PublicUser; showAge: boolean }>('/api/me'),
-  updateMe: (patch: Partial<ProfileInput>) => request<{ user: PublicUser; showAge: boolean }>('/api/me', { method: 'PATCH', body: patch }),
+    request<{ token: string; user: PublicUser }>('/api/register', { method: 'POST', body: profile, auth: false }).then(withUser),
+  me: () => request<{ user: PublicUser; showAge?: boolean }>('/api/me').then(withUser),
+  updateMe: (patch: Partial<ProfileInput>) =>
+    request<{ user: PublicUser; showAge?: boolean }>('/api/me', { method: 'PATCH', body: patch }).then(withUser),
   ageCheck: (birthYear: number, estimatedAge: number) =>
     request<{ verified: boolean; reason?: string; user: PublicUser }>('/api/me/age-check', {
       method: 'POST',
       body: { birthYear, estimatedAge, live: true },
-    }),
-  user: (id: string) => request<{ user: PublicUser }>(`/api/users/${id}`),
-  uploadPhoto: (base64: string) => request<{ user: PublicUser }>('/api/me/photo', { method: 'PUT', body: { data: base64 } }),
-  deletePhoto: () => request<{ user: PublicUser }>('/api/me/photo', { method: 'DELETE' }),
+    }).then(withUser),
+  user: (id: string) => request<{ user: PublicUser }>(`/api/users/${id}`).then(withUser),
+  uploadPhoto: (base64: string) => request<{ user: PublicUser }>('/api/me/photo', { method: 'PUT', body: { data: base64 } }).then(withUser),
+  deletePhoto: () => request<{ user: PublicUser }>('/api/me/photo', { method: 'DELETE' }).then(withUser),
   deleteMe: () => request<{ ok: true }>('/api/me', { method: 'DELETE' }),
-  friends: () => request<FriendsPayload>('/api/friends'),
+  friends: () => request<FriendsPayload>('/api/friends').then(normalizeFriends),
   addFriend: (id: string) => request<{ status: 'requested' | 'friends' }>(`/api/friends/${id}`, { method: 'POST' }),
   removeFriend: (id: string) => request<{ status: 'none' }>(`/api/friends/${id}`, { method: 'DELETE' }),
-  blocked: () => request<{ blocked: PublicUser[] }>('/api/blocks'),
+  blocked: () => request<{ blocked: PublicUser[] }>('/api/blocks').then((d) => ({ blocked: (d.blocked ?? []).map(normalizeUser) })),
   block: (id: string) => request<{ ok: true }>(`/api/blocks/${id}`, { method: 'POST' }),
   unblock: (id: string) => request<{ ok: true }>(`/api/blocks/${id}`, { method: 'DELETE' }),
   report: (userId: string, reason: ReportReason) => request<{ ok: true }>('/api/reports', { method: 'POST', body: { userId, reason } }),

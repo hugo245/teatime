@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { Platform } from 'react-native';
 import { create } from 'zustand';
 import { prepareCallAudio, routeCallAudioToSpeaker } from '../../modules/call-audio/src';
-import { api, type IceServer, type PublicUser, type ReportReason } from '../lib/api';
+import { api, normalizeUser, type IceServer, type PublicUser, type ReportReason } from '../lib/api';
 import { realtime, type ServerMessage } from '../lib/realtime';
 import { CameraError, createPeer, openCamera, type RtcCandidate, type RtcDescription, type RtcPeer, type RtcStream } from '../rtc';
 import { useFriends } from '../state/friends';
@@ -390,7 +390,7 @@ function handleMessage(message: ServerMessage) {
       return;
     case 'call.incoming': {
       const callId = String(message.callId);
-      const caller = message.peer as PublicUser;
+      const caller = normalizeUser(message.peer as PublicUser);
       if (state.phase === 'idle' || state.phase === 'searching' || state.phase === 'ended' || state.phase === 'preparing') {
         closeDialog();
         if (state.phase === 'ended') releaseMedia();
@@ -416,7 +416,7 @@ function handleMessage(message: ServerMessage) {
         phase: 'connecting',
         callId,
         kind: message.kind === 'friend' ? 'friend' : 'random',
-        peer: message.peer as PublicUser,
+        peer: normalizeUser(message.peer as PublicUser),
         initiator,
         sharedInterests: Array.isArray(message.sharedInterests) ? (message.sharedInterests as string[]) : [],
         friendship: (message.friendship as Friendship) ?? 'none',

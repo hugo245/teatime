@@ -1,8 +1,8 @@
 import type { ExpoConfig } from 'expo/config';
 
-const serverUrl = process.env.TEATIME_SERVER_URL ?? '';
-const bundleIdentifier = process.env.TEATIME_BUNDLE_ID ?? 'com.hugo245.teatime';
-const buildNumber = process.env.TEATIME_BUILD_NUMBER ?? '1';
+const serverUrl = process.env.TEATIME_SERVER_URL || 'https://teatime.hugoplayzpersonal.workers.dev';
+const bundleIdentifier = process.env.TEATIME_BUNDLE_ID || 'com.hugo245.teatime';
+const buildNumber = process.env.TEATIME_BUILD_NUMBER || '1';
 
 const config: ExpoConfig = {
   name: 'TeaTime',

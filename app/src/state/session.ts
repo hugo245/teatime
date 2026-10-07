@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api, setApiToken, setAuthFailureListener, type ProfileInput, type PublicUser } from '../lib/api';
+import { api, normalizeUser, setApiToken, setAuthFailureListener, type ProfileInput, type PublicUser } from '../lib/api';
 import { realtime } from '../lib/realtime';
 import { getJson, getSecret, removeItem, removeSecret, setJson, setSecret } from '../lib/storage';
 
@@ -70,7 +70,7 @@ export const useSession = create<SessionState>((set, get) => ({
     }
     setApiToken(token);
     const cached = await getJson<PublicUser>(USER_KEY);
-    set({ status: 'signedIn', user: cached });
+    set({ status: 'signedIn', user: cached ? normalizeUser(cached) : null });
     realtime.start(token);
     api
       .me()
@@ -95,7 +95,8 @@ export const useSession = create<SessionState>((set, get) => ({
     realtime.start(token);
   },
 
-  setUser(user, showAge) {
+  setUser(raw, showAge) {
+    const user = normalizeUser(raw);
     set(showAge === undefined ? { user } : { user, showAge });
     void setJson(USER_KEY, user);
   },
