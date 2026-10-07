@@ -1,0 +1,14 @@
+{
+  "name": "teatime",
+  "private": true,
+  "description": "TeaTime: friendly video chats for older people",
+  "scripts": {
+    "simulator": "node simulator/start.mjs",
+    "setup": "npm --prefix app ci && npm --prefix server ci",
+    "server": "npm --prefix server run dev",
+    "test": "npm --prefix server test && npm --prefix app run typecheck"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
