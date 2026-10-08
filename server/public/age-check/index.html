@@ -27,9 +27,9 @@
   <script src="face-api.js"></script>
   <script>
     (function () {
-      var SAMPLES = 8;
-      var TIMEOUT = 60000;
-      var NO_FACE_TIMEOUT = 40000;
+      var SAMPLES = 6;
+      var TIMEOUT = 90000;
+      var NO_FACE_TIMEOUT = 45000;
       var framesMode = /[?&]mode=frames/.test(location.search);
       if (framesMode) document.documentElement.className = 'frames';
       var video = document.getElementById('video');
@@ -83,14 +83,55 @@
         var now = Date.now();
         if ((state.started && now - state.started > TIMEOUT) || (!state.started && now - state.opened > NO_FACE_TIMEOUT)) {
           setStatus('That took too long. Please try again in good light.');
-          end({ type: 'timeout' });
+          end({ type: 'timeout', detail: details() });
           return true;
         }
         return false;
       }
 
+      var stats = { frames: 0, faces: 0, errors: 0, backend: '', dark: 0 };
+      var work = document.createElement('canvas');
+      var switchedToCpu = false;
+
       function detect(input) {
         return faceapi.detectSingleFace(input, options).withFaceLandmarks(true).withAgeAndGender();
+      }
+
+      function details() {
+        return 'backend ' + stats.backend + ', frames ' + stats.frames + ', faces ' + stats.faces + ', errors ' + stats.errors + ', dark ' + stats.dark;
+      }
+
+      function useCpu() {
+        if (switchedToCpu) return Promise.resolve();
+        switchedToCpu = true;
+        send({ type: 'debug', detail: 'switching to cpu, ' + details() });
+        return faceapi.tf.setBackend('cpu').then(function () {
+          return faceapi.tf.ready();
+        }).then(function () {
+          stats.backend = faceapi.tf.getBackend();
+        }).catch(function () {});
+      }
+
+      function grab() {
+        var w = video.videoWidth;
+        var h = video.videoHeight;
+        if (!w || !h) return null;
+        var scale = Math.min(1, (switchedToCpu ? 240 : 360) / Math.max(w, h));
+        work.width = Math.round(w * scale);
+        work.height = Math.round(h * scale);
+        var ctx = work.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(video, 0, 0, work.width, work.height);
+        if (stats.frames % 10 === 0) {
+          var pixels = ctx.getImageData(0, 0, work.width, work.height).data;
+          var sum = 0;
+          var count = 0;
+          for (var i = 0; i < pixels.length; i += 64) {
+            sum += pixels[i] + pixels[i + 1] + pixels[i + 2];
+            count += 3;
+          }
+          if (sum / count < 12) stats.dark += 1;
+        }
+        return work;
       }
 
       var rotation = 0;
@@ -118,6 +159,7 @@
         var chain = Promise.resolve();
         [0, 90, 180, 270].forEach(function (degrees) {
           chain = chain.then(function () {
+            if (best && bestDegrees === 0 && best.detection.score >= 0.6) return;
             return detect(rotated(img, degrees)).then(function (result) {
               if (result && (!best || result.detection.score > best.detection.score)) {
                 best = result;
@@ -127,7 +169,7 @@
           });
         });
         return chain.then(function () {
-          if (!best || best.detection.score < 0.75) return null;
+          if (!best || best.detection.score < 0.6) return null;
           if (votes.degrees === bestDegrees) votes.count += 1;
           else votes = { degrees: bestDegrees, count: 1 };
           if (votes.count >= 2) {
@@ -145,7 +187,7 @@
       function detectAnyRotation(img) {
         if (!locked) return calibrate(img);
         return detect(rotated(img, rotation)).then(function (result) {
-          if (result && result.detection.score >= 0.6) {
+          if (result && result.detection.score >= 0.5) {
             misses = 0;
             return result;
           }
@@ -162,15 +204,16 @@
         if (finished || timedOut()) return Promise.resolve();
         return detection.then(function (result) {
           if (finished) return;
-          if (!result || result.detection.score < 0.6) {
+          if (!result || result.detection.score < 0.5) {
             if (Date.now() - state.lastSeen > 4000) setStatus('We cannot see your face. Hold the phone in front of you, in good light.');
             return;
           }
+          stats.faces += 1;
           state.lastSeen = Date.now();
           if (!state.started) state.started = Date.now();
           var ratio = turnRatio(result.landmarks);
           if (state.phase === 'straight') {
-            if (ratio > 0.35 && ratio < 0.65) {
+            if (ratio > 0.3 && ratio < 0.7) {
               state.ages.push(result.age);
               setProgress((state.ages.length / SAMPLES) * 0.6);
               if (state.ages.length >= SAMPLES) {
@@ -183,13 +226,13 @@
               setStatus('Look straight at the camera');
             }
           } else if (state.phase === 'turn1') {
-            if (ratio < 0.27 || ratio > 0.73) {
+            if (ratio < 0.3 || ratio > 0.7) {
               state.firstSide = ratio < 0.5 ? 'low' : 'high';
               state.phase = 'turn2';
               setProgress(0.8);
               setStatus('Good. Now turn to the other side', true);
             }
-          } else if ((state.firstSide === 'low' && ratio > 0.73) || (state.firstSide === 'high' && ratio < 0.27)) {
+          } else if ((state.firstSide === 'low' && ratio > 0.7) || (state.firstSide === 'high' && ratio < 0.3)) {
             setProgress(1);
             setStatus('All done, thank you');
             end({ type: 'result', age: median(state.ages), samples: state.ages.length, live: true });
@@ -199,8 +242,20 @@
 
       function cameraLoop() {
         if (finished) return;
-        analyze(detect(video)).catch(function () { return null; }).then(function () {
-          if (!finished) setTimeout(cameraLoop, 120);
+        var frame = grab();
+        if (!frame) {
+          setTimeout(cameraLoop, 150);
+          return;
+        }
+        stats.frames += 1;
+        analyze(detectAnyRotation(frame)).catch(function (error) {
+          stats.errors += 1;
+          send({ type: 'debug', detail: String((error && error.message) || error) });
+          if (stats.errors >= 3) return useCpu();
+        }).then(function () {
+          if (!switchedToCpu && stats.frames >= 25 && stats.faces === 0 && stats.dark < 2) return useCpu();
+        }).then(function () {
+          if (!finished) setTimeout(cameraLoop, 80);
         });
       }
 
@@ -221,7 +276,9 @@
       window.__teatimeFrame = function (dataUrl) {
         var img = new Image();
         img.onload = function () {
+          stats.frames += 1;
           analyze(detectAnyRotation(img)).catch(function (error) {
+            stats.errors += 1;
             send({ type: 'debug', detail: String((error && error.message) || error) });
           }).then(function () {
             send({ type: 'frameDone' });
@@ -236,7 +293,8 @@
         faceapi.nets.faceLandmark68TinyNet.loadFromUri('models'),
         faceapi.nets.ageGenderNet.loadFromUri('models')
       ]).then(function () {
-        options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
+        options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4 });
+        stats.backend = faceapi.tf.getBackend();
         if (framesMode) {
           state.opened = Date.now();
           send({ type: 'ready' });
@@ -244,6 +302,7 @@
           return;
         }
         setStatus('Turning on your camera');
+        if (window.__forceCpu) useCpu();
         return startCamera().then(function () {
           state.opened = Date.now();
           send({ type: 'ready' });

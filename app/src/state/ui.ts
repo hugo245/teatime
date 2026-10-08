@@ -4,7 +4,7 @@ import { create } from 'zustand';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
-export type Toast = { id: number; message: string; icon?: IconName };
+export type Toast = { id: number; message: string; icon?: IconName; onPress?: () => void };
 
 export type DialogRequest = {
   title: string;
@@ -18,7 +18,7 @@ export type DialogRequest = {
 type UiState = {
   toast: Toast | null;
   dialog: DialogRequest | null;
-  showToast(message: string, icon?: IconName): void;
+  showToast(message: string, icon?: IconName, onPress?: () => void): void;
   hideToast(id: number): void;
   setDialog(dialog: DialogRequest | null): void;
 };
@@ -28,10 +28,10 @@ let toastId = 0;
 export const useUi = create<UiState>((set, get) => ({
   toast: null,
   dialog: null,
-  showToast(message, icon) {
+  showToast(message, icon, onPress) {
     const id = ++toastId;
-    set({ toast: { id, message, icon } });
-    setTimeout(() => get().hideToast(id), 3200);
+    set({ toast: { id, message, icon, onPress } });
+    setTimeout(() => get().hideToast(id), onPress ? 5000 : 3200);
   },
   hideToast(id) {
     if (get().toast?.id === id) set({ toast: null });
@@ -41,8 +41,8 @@ export const useUi = create<UiState>((set, get) => ({
   },
 }));
 
-export function toast(message: string, icon?: IconName) {
-  useUi.getState().showToast(message, icon);
+export function toast(message: string, icon?: IconName, onPress?: () => void) {
+  useUi.getState().showToast(message, icon, onPress);
 }
 
 export function confirm(options: Omit<DialogRequest, 'resolve'>): Promise<boolean> {

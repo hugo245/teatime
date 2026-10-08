@@ -165,7 +165,97 @@ CREATE TABLE IF NOT EXISTS banned_devices (
   device_id TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'text',
+  body TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  read_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS messages_from ON messages(from_id, to_id, id);
+CREATE INDEX IF NOT EXISTS messages_to ON messages(to_id, read_at);
+CREATE TABLE IF NOT EXISTS push_tokens (
+  user_id TEXT PRIMARY KEY,
+  platform TEXT NOT NULL,
+  token TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  location TEXT NOT NULL DEFAULT '',
+  starts_at INTEGER NOT NULL,
+  ends_at INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS event_attendees (
+  event_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (event_id, user_id)
+);
 `;
+
+export type MessageKind = 'text' | 'missed-call';
+
+export type Message = {
+  id: number;
+  from: string;
+  to: string;
+  kind: MessageKind;
+  text: string;
+  createdAt: number;
+  readAt: number | null;
+};
+
+type MessageRow = {
+  id: number;
+  from_id: string;
+  to_id: string;
+  kind: MessageKind;
+  body: string;
+  created_at: number;
+  read_at: number | null;
+};
+
+function toMessage(row: MessageRow): Message {
+  return {
+    id: row.id,
+    from: row.from_id,
+    to: row.to_id,
+    kind: row.kind,
+    text: row.body,
+    createdAt: row.created_at,
+    readAt: row.read_at,
+  };
+}
+
+export type TeaEvent = {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  startsAt: number;
+  endsAt: number | null;
+  going: number;
+  attending: boolean;
+};
+
+type EventRow = {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  starts_at: number;
+  ends_at: number | null;
+  going: number;
+  attending: number;
+};
+
+export type PushToken = { platform: string; token: string };
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -243,6 +333,149 @@ export class Store {
     add('birth_date', 'TEXT');
     add('age_verified_at', 'INTEGER');
     add('show_age', 'INTEGER NOT NULL DEFAULT 1');
+    const events = this.db.get('SELECT COUNT(*) AS n FROM events') as { n: number };
+    if (!events.n) {
+      const start = new Date();
+      start.setUTCDate(start.getUTCDate() + 7);
+      start.setUTCHours(13, 0, 0, 0);
+      this.createEvent({
+        title: 'Test',
+        description: 'A test event to try out TeaTime Events. Tap I will come to let others know you are joining.',
+        location: 'Online',
+        startsAt: start.getTime(),
+        endsAt: start.getTime() + 2 * 60 * 60 * 1000,
+      });
+    }
+  }
+
+  addMessage(from: string, to: string, kind: MessageKind, text: string): Message {
+    const createdAt = Date.now();
+    this.db.run('INSERT INTO messages (from_id, to_id, kind, body, created_at) VALUES (?, ?, ?, ?, ?)', from, to, kind, text, createdAt);
+    const row = this.db.get('SELECT * FROM messages WHERE from_id = ? AND to_id = ? ORDER BY id DESC LIMIT 1', from, to) as MessageRow;
+    return toMessage(row);
+  }
+
+  conversation(a: string, b: string, beforeId: number | null, limit: number): Message[] {
+    const rows = this.db.all(
+      `SELECT * FROM messages WHERE ((from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)) AND id < ?
+       ORDER BY id DESC LIMIT ?`,
+      a,
+      b,
+      b,
+      a,
+      beforeId ?? Number.MAX_SAFE_INTEGER,
+      limit,
+    ) as MessageRow[];
+    return rows.map(toMessage).reverse();
+  }
+
+  markRead(reader: string, other: string): number {
+    const now = Date.now();
+    this.db.run('UPDATE messages SET read_at = ? WHERE to_id = ? AND from_id = ? AND read_at IS NULL', now, reader, other);
+    return now;
+  }
+
+  conversations(id: string): { otherId: string; last: Message; unread: number }[] {
+    const rows = this.db.all(
+      `SELECT m.* FROM messages m JOIN (
+         SELECT CASE WHEN from_id = ? THEN to_id ELSE from_id END AS other, MAX(id) AS last_id
+         FROM messages WHERE from_id = ? OR to_id = ? GROUP BY other
+       ) t ON m.id = t.last_id ORDER BY m.id DESC`,
+      id,
+      id,
+      id,
+    ) as MessageRow[];
+    const unread = new Map(
+      (this.db.all('SELECT from_id, COUNT(*) AS n FROM messages WHERE to_id = ? AND read_at IS NULL GROUP BY from_id', id) as { from_id: string; n: number }[]).map(
+        (r) => [r.from_id, r.n],
+      ),
+    );
+    return rows.map((row) => {
+      const last = toMessage(row);
+      const otherId = last.from === id ? last.to : last.from;
+      return { otherId, last, unread: unread.get(otherId) ?? 0 };
+    });
+  }
+
+  unreadCount(id: string): number {
+    return (this.db.get('SELECT COUNT(*) AS n FROM messages WHERE to_id = ? AND read_at IS NULL', id) as { n: number }).n;
+  }
+
+  messagesSentSince(id: string, since: number): number {
+    return (this.db.get('SELECT COUNT(*) AS n FROM messages WHERE from_id = ? AND kind = ? AND created_at >= ?', id, 'text', since) as { n: number }).n;
+  }
+
+  setPushToken(id: string, platform: string, token: string) {
+    this.db.run('DELETE FROM push_tokens WHERE token = ? AND user_id <> ?', token, id);
+    this.db.run(
+      'INSERT INTO push_tokens (user_id, platform, token, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET platform = excluded.platform, token = excluded.token, updated_at = excluded.updated_at',
+      id,
+      platform,
+      token,
+      Date.now(),
+    );
+  }
+
+  pushToken(id: string): PushToken | null {
+    const row = this.db.get('SELECT platform, token FROM push_tokens WHERE user_id = ?', id) as PushToken | undefined;
+    return row ?? null;
+  }
+
+  removePushToken(id: string, token?: string) {
+    if (token) this.db.run('DELETE FROM push_tokens WHERE user_id = ? AND token = ?', id, token);
+    else this.db.run('DELETE FROM push_tokens WHERE user_id = ?', id);
+  }
+
+  createEvent(input: { title: string; description: string; location: string; startsAt: number; endsAt: number | null }): string {
+    const id = randomUUID();
+    this.db.run(
+      'INSERT INTO events (id, title, description, location, starts_at, ends_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      id,
+      input.title,
+      input.description,
+      input.location,
+      input.startsAt,
+      input.endsAt,
+      Date.now(),
+    );
+    return id;
+  }
+
+  deleteEvent(id: string) {
+    this.db.run('DELETE FROM event_attendees WHERE event_id = ?', id);
+    this.db.run('DELETE FROM events WHERE id = ?', id);
+  }
+
+  events(userId: string): TeaEvent[] {
+    const rows = this.db.all(
+      `SELECT e.*, (SELECT COUNT(*) FROM event_attendees a WHERE a.event_id = e.id) AS going,
+         EXISTS (SELECT 1 FROM event_attendees a WHERE a.event_id = e.id AND a.user_id = ?) AS attending
+       FROM events e WHERE COALESCE(e.ends_at, e.starts_at) >= ? ORDER BY e.starts_at ASC`,
+      userId,
+      Date.now() - 24 * 60 * 60 * 1000,
+    ) as EventRow[];
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      location: row.location,
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
+      going: row.going,
+      attending: !!row.attending,
+    }));
+  }
+
+  eventExists(id: string) {
+    return !!this.db.get('SELECT 1 FROM events WHERE id = ?', id);
+  }
+
+  setAttending(eventId: string, userId: string, attending: boolean) {
+    if (attending) {
+      this.db.run('INSERT OR IGNORE INTO event_attendees (event_id, user_id, created_at) VALUES (?, ?, ?)', eventId, userId, Date.now());
+    } else {
+      this.db.run('DELETE FROM event_attendees WHERE event_id = ? AND user_id = ?', eventId, userId);
+    }
   }
 
   close() {
@@ -340,6 +573,9 @@ export class Store {
   }
 
   deleteUser(id: string) {
+    this.db.run('DELETE FROM messages WHERE from_id = ? OR to_id = ?', id, id);
+    this.db.run('DELETE FROM push_tokens WHERE user_id = ?', id);
+    this.db.run('DELETE FROM event_attendees WHERE user_id = ?', id);
     this.db.run('DELETE FROM users WHERE id = ?', id);
     this.db.run('DELETE FROM reports WHERE reporter_id = ?', id);
   }

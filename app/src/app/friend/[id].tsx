@@ -36,7 +36,7 @@ export default function FriendScreen() {
   }
 
   const name = firstName(friend.name);
-  const canCall = friend.online && !friend.busy;
+  const canCall = !friend.busy;
   const status = friend.busy ? 'In a call right now' : friend.online ? 'Here now' : `Last here ${timeAgo(friend.lastSeen)}`;
 
   const remove = async () => {
@@ -94,15 +94,23 @@ export default function FriendScreen() {
         </AppText>
       </View>
 
-      <Button
-        label={canCall ? `Video call ${name}` : `${name} is not here right now`}
-        icon="videocam"
-        disabled={!canCall}
-        onPress={() => callFriend(friend)}
-      />
-      {!canCall ? (
+      <View style={{ gap: space.md }}>
+        <Button
+          label={canCall ? `Video call ${name}` : `${name} is in another call`}
+          icon="videocam"
+          disabled={!canCall}
+          onPress={() => callFriend(friend)}
+        />
+        <Button
+          label={`Send ${name} a message`}
+          icon="chatbubble"
+          variant="soft"
+          onPress={() => router.push({ pathname: '/chat/[id]', params: { id: friend.id } })}
+        />
+      </View>
+      {canCall && !friend.online ? (
         <AppText variant="caption" color={colors.textMuted} center style={{ marginTop: 8 }}>
-          You can call when you see the green dot next to {name}.
+          {name} is not in TeaTime right now. If you call, we will ring their phone.
         </AppText>
       ) : null}
 

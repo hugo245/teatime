@@ -18,6 +18,8 @@ type Env = {
   REMATCH_WAIT_MS?: string;
   MATCH_INTERVAL_MS?: string;
   UPDATES_URL?: string;
+  AGE_TEST_SKIP?: string;
+  FIREBASE_SERVICE_ACCOUNT?: string;
 };
 
 function iceServers(env: Env): IceServer[] {
@@ -55,6 +57,8 @@ export class TeaTimeHub extends DurableObject<Env> {
         matchIntervalMs: num(env.MATCH_INTERVAL_MS),
       },
       updates: { releasesUrl: env.UPDATES_URL },
+      ageTestSkip: env.AGE_TEST_SKIP !== '0',
+      firebaseServiceAccount: env.FIREBASE_SERVICE_ACCOUNT,
       log: (message, extra) => console.log(JSON.stringify({ message, ...extra })),
     });
     setInterval(() => this.api.hub.sweep(70_000), 15_000);

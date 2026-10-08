@@ -19,6 +19,11 @@ During a call there are four large buttons with labels: Mute, Camera, Add friend
 ### Features
 
 * **Verified Age badge.** Type the year you were born, look at the camera and slowly turn your head to each side. A face model on the phone estimates your age, and if it matches you get the badge. No ID, nothing to pay, and your face is never saved or sent anywhere. Photos do not work because a photo cannot turn its head. Anyone can skip it.
+* **Age confirm.** If the age you typed does not match, TeaTime shows the age it sees and asks "Is that right?". Tap Yes, or tap No and type your age to check once more.
+* **Chats.** Send messages to your friends from the new Chats tab. Big bubbles, big text and one tap replies like "How are you?". Unread messages show a number on the tab.
+* **Call friends who are not in the app.** TeaTime rings their phone for a minute. If they open TeaTime in time, the call comes straight in. If not, they see "Missed call from Rose" in the chat with a Call back button.
+* **Notifications.** New messages and calls show up as phone notifications. Tapping one opens the right chat.
+* **Events.** The Events tab lists get togethers for TeaTime members. Tap "I will come" so others know you are joining.
 * **Only meet verified people.** People with the badge can switch on "Only meet people with Verified Age" on the Meet tab.
 * **Same language matching.** You pick the languages you speak, and TeaTime only matches people who share one.
 * **Something to talk about.** During a call, tap Topic idea and both of you see the same friendly question, such as "What was your very first job?"
@@ -35,6 +40,8 @@ During a call there are four large buttons with labels: Mute, Camera, Add friend
 | ![The screen after a call](docs/after-call.png) | ![The Friends tab](docs/friends.png) |
 | **Age check** | **Verified Age** |
 | ![The live age check camera](docs/age-check.png) | ![The Verified Age badge](docs/verified.png) |
+| **Chats** | **Events** |
+| ![A chat between two friends](docs/chat.png) | ![The Events tab](docs/events.png) |
 
 ## What is in this repository
 
@@ -107,6 +114,34 @@ Bigger changes that touch the phone side of the app (a new camera or sound libra
 
 Phones only get updates made for their own `runtimeVersion`, so an update never breaks an older install.
 
+## Notifications when TeaTime is closed
+
+While TeaTime is open or was used a moment ago, messages and calls show up as notifications on both iPhone and Android with no setup.
+
+To also wake **Android** phones when TeaTime is fully closed, connect a free Firebase project once:
+
+1. Go to [console.firebase.google.com](https://console.firebase.google.com), sign in with a Google account and click **Create a project**. Analytics is not needed.
+2. Click **Add app**, choose **Android** and type `com.hugo245.teatime` as the package name. Download `google-services.json`.
+3. On GitHub open **Settings, Secrets and variables, Actions, Secrets**, click **New repository secret**, name it `GOOGLE_SERVICES_JSON` and paste the whole contents of that file. Run the **Android build** workflow again.
+4. In Firebase open **Project settings, Service accounts** and click **Generate new private key**. In Terminal, in the `server` folder, run `npx wrangler secret put FIREBASE_SERVICE_ACCOUNT` and paste the whole contents of that key file.
+
+Android phones with the new app now ring when a friend calls, even when TeaTime is closed.
+
+On **iPhone**, notifications while the app is closed need Apple's push service, which requires a paid Apple Developer account. With Sideloadly and a free Apple ID, iPhone users see calls and messages when they open TeaTime, and missed calls wait in their chats.
+
+## Events
+
+TeaTime starts with one event called **Test**. Add more with your `ADMIN_TOKEN`:
+
+```bash
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"title":"Coffee morning","description":"Meet other members for coffee and cake.","location":"Central Library, room 2","startsAt":"2026-11-14T10:00:00Z","endsAt":"2026-11-14T12:00:00Z"}' \
+  https://your-server/admin/events
+curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" https://your-server/admin/events/EVENT_ID
+```
+
+Events disappear by themselves a day after they end.
+
 ### Connect the iPhone to a server
 
 The app talks to a TeaTime server to find people and set up calls.
@@ -167,6 +202,8 @@ docker run -p 8080:8080 -v teatime-data:/data \
 | `TRUST_PROXY` | Set to `1` behind a proxy or load balancer so rate limits see real addresses |
 | `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL` | Your TURN relay, see below |
 | `ICE_SERVERS` | Full WebRTC ICE server list as JSON, if you prefer to set it directly |
+| `FIREBASE_SERVICE_ACCOUNT` | Firebase service account key as JSON, for Android notifications when the app is closed |
+| `AGE_TEST_SKIP` | Set to `0` to turn off the hidden testing shortcut in the age check |
 | `UPDATES_URL` | Where app updates are downloaded from, default `https://github.com/hugo245/teatime/releases/download` |
 
 ### TURN relay for mobile networks
@@ -176,6 +213,8 @@ Video goes straight from one phone to the other. On some mobile and office netwo
 ## Safety and moderation
 
 * **Verified Age** uses a live camera check with head turns, so a photo of someone else does not pass. Face age estimates are never exact, so the check allows a margin, and a wider one for older faces.
+* **Testing shortcut.** Tapping the title "Get your Verified Age badge" five times shows a button that skips the camera and still gives the badge. It is there for testing the app. Before real people use TeaTime, turn it off with `npx wrangler secret put AGE_TEST_SKIP` and the value `0`, or set `AGE_TEST_SKIP=0` on your own server.
+* **Messages** can only be sent between friends, with a limit of 20 messages a minute.
 * **Report** is always one tap away during a call. It ends the call, blocks that person and stores the report.
 * **Block** from a friend's page. Blocked people can never be matched with you or call you.
 * When three different people report someone within a week, that account is removed automatically and that phone cannot sign up again.

@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useEffect, useRef, useState } from 'react';
@@ -100,6 +101,7 @@ function SearchingView() {
 
 function OutgoingView() {
   const peer = useCall((s) => s.peer);
+  const offline = useCall((s) => s.ringingOffline);
   const insets = useSafeAreaInsets();
   if (!peer) return null;
   return (
@@ -114,7 +116,9 @@ function OutgoingView() {
           Calling {firstName(peer.name)}
         </AppText>
         <AppText variant="body" color="rgba(255,255,255,0.85)" center style={{ marginTop: 6 }} accessibilityLiveRegion="polite">
-          Waiting for {firstName(peer.name)} to answer
+          {offline
+            ? `${firstName(peer.name)} is not in TeaTime right now. We are ringing their phone.`
+            : `Waiting for ${firstName(peer.name)} to answer`}
         </AppText>
       </View>
       <View style={styles.controlsRow}>
@@ -384,7 +388,7 @@ function endedCopy(reason: EndReason | null, name: string, talked: number | null
     case 'declined':
       return { title: `${name} can't talk right now`, message: 'Why not try again a little later?', icon: 'time' };
     case 'no-answer':
-      return { title: `${name} did not answer`, message: 'They may be away from their phone. You can try again later.', icon: 'time' };
+      return { title: `${name} did not answer`, message: 'We let them know you called. You can send a message or try again later.', icon: 'time' };
     case 'offline':
       return { title: `${name} is not on TeaTime right now`, message: 'You can call when you see the green dot next to their name.', icon: 'time' };
     case 'busy':
@@ -484,6 +488,17 @@ function EndedView() {
         {kind === 'random' ? <Button label="Meet someone new" icon="cafe" onPress={startMeeting} /> : null}
         {failedFriendCall && peer && endReason !== 'no-internet' && endReason !== 'offline' ? (
           <Button label={`Call ${name} again`} icon="videocam" onPress={() => callFriend(peer)} />
+        ) : null}
+        {failedFriendCall && peer ? (
+          <Button
+            label={`Send ${name} a message`}
+            icon="chatbubble"
+            variant="soft"
+            onPress={() => {
+              dismissEnded();
+              router.push({ pathname: '/chat/[id]', params: { id: peer.id } });
+            }}
+          />
         ) : null}
         <Button label="Done" variant="secondary" onPress={dismissEnded} />
         {peer && endReason !== 'reported' && talked !== null ? (

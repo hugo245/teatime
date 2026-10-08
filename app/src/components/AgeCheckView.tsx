@@ -16,7 +16,7 @@ export type AgeCheckMessage =
   | { type: 'rotation'; degrees: number }
   | { type: 'debug'; detail?: string }
   | { type: 'result'; age: number; samples: number; live: boolean }
-  | { type: 'timeout' }
+  | { type: 'timeout'; detail?: string }
   | { type: 'nocamera'; detail?: string }
   | { type: 'error'; detail?: string };
 

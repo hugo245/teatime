@@ -29,6 +29,8 @@ export type ServerOptions = {
   log?: (message: string, extra?: Record<string, unknown>) => void;
   hub?: HubOptions;
   updates?: UpdatesOptions;
+  ageTestSkip?: boolean;
+  firebaseServiceAccount?: string;
 };
 
 export type TeaTimeServer = {

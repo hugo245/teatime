@@ -15,7 +15,8 @@ before(async () => {
     iceServers: [{ urls: 'stun:stun.example.org:3478' }],
     supportEmail: 'help@example.org',
     adminToken: 'admin-secret',
-    hub: { ringTimeoutMs: 400, reconnectGraceMs: 200, rematchCooldownMs: 60_000, rematchWaitMs: 300, matchIntervalMs: 100 },
+    ageTestSkip: true,
+    hub: { ringTimeoutMs: 400, reconnectGraceMs: 200, rematchCooldownMs: 60_000, rematchWaitMs: 300, matchIntervalMs: 100, offlineRingMs: 600 },
   });
   await new Promise((resolve) => server.http.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.http.address().port}`;
@@ -443,6 +444,125 @@ describe('new features', () => {
     const page = await fetch(base + '/age-check/');
     assert.equal(page.status, 200);
     assert.match(await page.text(), /face-api/);
+  });
+});
+
+describe('chat, offline calls and events', () => {
+  const year = new Date().getUTCFullYear();
+
+  async function friends(nameA, nameB) {
+    const a = await register(nameA);
+    const b = await register(nameB);
+    const sa = await connect(a.token);
+    const sb = await connect(b.token);
+    sa.send({ type: 'meet.start' });
+    await sa.next('meet.searching');
+    sb.send({ type: 'meet.start' });
+    const start = await sa.next('call.start');
+    await sb.next('call.start');
+    sa.send({ type: 'call.hangup', callId: start.callId });
+    await sb.next('call.ended');
+    await api(`/api/friends/${b.user.id}`, { token: a.token, method: 'POST' });
+    await api(`/api/friends/${a.user.id}`, { token: b.token, method: 'POST' });
+    return { a, b, sa, sb };
+  }
+
+  test('friends send messages and read them', async () => {
+    const { a, b, sa, sb } = await friends('Writer', 'Reader');
+    const sent = await api(`/api/chats/${b.user.id}`, { token: a.token, method: 'POST', body: { text: 'Hello there!\nHow are you?' } });
+    assert.equal(sent.status, 201);
+    assert.equal(sent.body.message.text, 'Hello there!\nHow are you?');
+    const live = await sb.next('chat.message');
+    assert.equal(live.message.text, 'Hello there!\nHow are you?');
+    assert.equal(live.user.name, 'Writer');
+
+    const list = await api('/api/chats', { token: b.token });
+    assert.equal(list.body.unread, 1);
+    assert.equal(list.body.chats[0].user.id, a.user.id);
+    assert.equal(list.body.chats[0].friend, true);
+
+    const thread = await api(`/api/chats/${a.user.id}`, { token: b.token });
+    assert.equal(thread.body.messages.length, 1);
+    await api(`/api/chats/${a.user.id}/read`, { token: b.token, method: 'POST' });
+    const read = await sa.next('chat.read');
+    assert.equal(read.userId, b.user.id);
+    assert.equal((await api('/api/chats', { token: b.token })).body.unread, 0);
+
+    const empty = await api(`/api/chats/${b.user.id}`, { token: a.token, method: 'POST', body: { text: '   ' } });
+    assert.equal(empty.status, 400);
+    const stranger = await register('Stranger');
+    const blocked = await api(`/api/chats/${a.user.id}`, { token: stranger.token, method: 'POST', body: { text: 'Hi' } });
+    assert.equal(blocked.status, 403);
+    await sa.close();
+    await sb.close();
+  });
+
+  test('rings a friend who is offline and records a missed call', async () => {
+    const { a, b, sa, sb } = await friends('Ringer', 'Sleeper');
+    await sb.close();
+    await new Promise((r) => setTimeout(r, 50));
+
+    sa.send({ type: 'call.ring', userId: b.user.id });
+    const ringing = await sa.next('call.ringing');
+    assert.equal(ringing.offline, true);
+    const back = await connect(b.token);
+    const incoming = await back.next('call.incoming');
+    assert.equal(incoming.callId, ringing.callId);
+    back.send({ type: 'call.answer', callId: incoming.callId });
+    await sa.next('call.start');
+    await back.next('call.start');
+    back.send({ type: 'call.hangup', callId: incoming.callId });
+    await sa.next('call.ended');
+    await back.close();
+    await new Promise((r) => setTimeout(r, 50));
+
+    sa.send({ type: 'call.ring', userId: b.user.id });
+    await sa.next('call.ringing');
+    const ended = await sa.next('call.ended', 3000);
+    assert.equal(ended.reason, 'no-answer');
+    const note = await sa.next('chat.message');
+    assert.equal(note.message.kind, 'missed-call');
+    const chats = await api('/api/chats', { token: b.token });
+    assert.equal(chats.body.chats[0].last.kind, 'missed-call');
+    assert.equal(chats.body.unread, 1);
+    await sa.close();
+  });
+
+  test('lists events and lets people say they will come', async () => {
+    const { token } = await register('Eventgoer');
+    const list = await api('/api/events', { token });
+    const test = list.body.events.find((e) => e.title === 'Test');
+    assert.ok(test);
+    const going = await api(`/api/events/${test.id}/attend`, { token, method: 'POST' });
+    assert.equal(going.body.event.attending, true);
+    assert.equal(going.body.event.going, test.going + 1);
+    const notGoing = await api(`/api/events/${test.id}/attend`, { token, method: 'DELETE' });
+    assert.equal(notGoing.body.event.attending, false);
+
+    const created = await fetch(base + '/admin/events', {
+      method: 'POST',
+      headers: { authorization: 'Bearer admin-secret', 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Garden walk', location: 'City park', startsAt: Date.now() + 86400000 }),
+    });
+    assert.equal(created.status, 201);
+    const after = await api('/api/events', { token });
+    assert.ok(after.body.events.some((e) => e.title === 'Garden walk'));
+  });
+
+  test('the hidden test skip gives the badge without the camera', async () => {
+    const { token } = await register('Tester');
+    const res = await api('/api/me/age-check', { token, method: 'POST', body: { birthYear: year - 70, test: true } });
+    assert.equal(res.body.verified, true);
+    assert.equal(res.body.user.age, 70);
+    const config = await api('/api/config');
+    assert.equal(config.body.ageTestSkip, true);
+  });
+
+  test('saves a push token', async () => {
+    const { token } = await register('Pushy');
+    const res = await api('/api/me/push', { token, method: 'PUT', body: { platform: 'android', token: 'fcm-token-1234567890' } });
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.enabled, false);
   });
 });
 

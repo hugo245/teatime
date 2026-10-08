@@ -39,6 +39,8 @@ const server = createTeaTimeServer({
   trustProxy: process.env.TRUST_PROXY === '1',
   registerLimitPerHour: process.env.REGISTER_LIMIT_PER_HOUR ? Number(process.env.REGISTER_LIMIT_PER_HOUR) : undefined,
   updates: { releasesUrl: process.env.UPDATES_URL },
+  ageTestSkip: process.env.AGE_TEST_SKIP !== '0',
+  firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT,
   log,
 });
 

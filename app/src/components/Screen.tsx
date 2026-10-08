@@ -17,9 +17,10 @@ type Props = {
   onRefresh?: () => void;
   contentStyle?: StyleProp<ViewStyle>;
   right?: ReactNode;
+  onTitlePress?: () => void;
 };
 
-export function Screen({ title, subtitle, back, scroll = true, children, footer, refreshing, onRefresh, contentStyle, right }: Props) {
+export function Screen({ title, subtitle, back, scroll = true, children, footer, refreshing, onRefresh, contentStyle, right, onTitlePress }: Props) {
   const insets = useSafeAreaInsets();
   const header = (
     <View style={styles.header}>
@@ -39,7 +40,7 @@ export function Screen({ title, subtitle, back, scroll = true, children, footer,
       ) : null}
       {title ? (
         <View style={styles.titleRow}>
-          <AppText variant="display" accessibilityRole="header" style={{ flex: 1 }}>
+          <AppText variant="display" accessibilityRole="header" style={{ flex: 1 }} onPress={onTitlePress} suppressHighlighting>
             {title}
           </AppText>
           {right}

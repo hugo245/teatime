@@ -58,14 +58,23 @@ export function ToastHost() {
 
   if (!toast) return null;
   return (
-    <View pointerEvents="none" style={[styles.toastWrap, { top: insets.top + 10 }]}>
+    <View pointerEvents={toast.onPress ? 'box-none' : 'none'} style={[styles.toastWrap, { top: insets.top + 10 }]}>
       <Animated.View
+        onTouchEnd={
+          toast.onPress
+            ? () => {
+                toast.onPress?.();
+                useUi.getState().hideToast(toast.id);
+              }
+            : undefined
+        }
         style={[
           styles.toast,
           { opacity, transform: [{ translateY: opacity.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }] },
         ]}
         accessibilityLiveRegion="polite"
-        accessibilityRole="alert"
+        accessibilityRole={toast.onPress ? 'button' : 'alert'}
+        onAccessibilityTap={toast.onPress}
       >
         <Ionicons name={toast.icon ?? 'checkmark-circle'} size={24} color={colors.white} />
         <AppText variant="bodyStrong" color={colors.white} style={{ flexShrink: 1 }}>

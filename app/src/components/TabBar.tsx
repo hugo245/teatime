@@ -4,6 +4,7 @@ import type { BottomTabBarProps } from 'expo-router/js-tabs';
 import type { ComponentProps } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useChats } from '../state/chats';
 import { useFriends } from '../state/friends';
 import { colors, fonts, shadow } from '../theme';
 import { AppText } from './AppText';
@@ -12,13 +13,16 @@ type IconName = ComponentProps<typeof Ionicons>['name'];
 
 const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName }> = {
   friends: { label: 'Friends', icon: 'people-outline', activeIcon: 'people' },
+  chats: { label: 'Chats', icon: 'chatbubbles-outline', activeIcon: 'chatbubbles' },
   index: { label: 'Meet', icon: 'cafe-outline', activeIcon: 'cafe' },
+  events: { label: 'Events', icon: 'calendar-outline', activeIcon: 'calendar' },
   profile: { label: 'Profile', icon: 'person-circle-outline', activeIcon: 'person-circle' },
 };
 
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const requestCount = useFriends((s) => s.requests.length);
+  const unread = useChats((s) => s.unread);
 
   return (
     <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom - 6, 10) }]}>
@@ -35,14 +39,20 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
           if (!focused && !event.defaultPrevented) navigation.navigate(route.name, route.params);
         };
 
-        const badge = route.name === 'friends' && requestCount > 0 ? requestCount : 0;
+        const badge = route.name === 'friends' ? requestCount : route.name === 'chats' ? unread : 0;
 
         return (
           <Pressable
             key={route.key}
             accessibilityRole="tab"
             accessibilityState={{ selected: focused }}
-            accessibilityLabel={badge ? `${tab.label}, ${badge} new friend request${badge > 1 ? 's' : ''}` : tab.label}
+            accessibilityLabel={
+              badge
+                ? route.name === 'chats'
+                  ? `${tab.label}, ${badge} new message${badge > 1 ? 's' : ''}`
+                  : `${tab.label}, ${badge} new friend request${badge > 1 ? 's' : ''}`
+                : tab.label
+            }
             onPress={onPress}
             style={({ pressed }) => [styles.item, pressed && { opacity: 0.7 }]}
           >
@@ -66,7 +76,8 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               scale={false}
               variant="label"
               color={tint}
-              style={{ fontFamily: focused ? fonts.heavy : fonts.bold, fontSize: 16 }}
+              numberOfLines={1}
+              style={{ fontFamily: focused ? fonts.heavy : fonts.bold, fontSize: 15 }}
             >
               {tab.label}
             </AppText>
@@ -84,7 +95,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     paddingTop: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 4,
   },
   item: {
     flex: 1,

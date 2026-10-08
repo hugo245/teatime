@@ -153,3 +153,39 @@ export function checkAgeEstimate(claimedAge: number, estimatedAge: number): { ok
   }
   return { ok: true };
 }
+
+export function parseMessageText(value: unknown): string {
+  if (typeof value !== 'string') throw new ValidationError('text', 'Please type a message.');
+  const text = value
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (!text) throw new ValidationError('text', 'Please type a message.');
+  if (text.length > 1000) throw new ValidationError('text', 'Please keep your message under 1000 letters.');
+  if (containsBlockedWords(text)) throw new ValidationError('text', 'Please write something different.');
+  return text;
+}
+
+export function parseEventInput(body: Record<string, unknown>) {
+  const text = (value: unknown, field: string, max: number, required = false) => {
+    const result = cleanText(value);
+    if (required && !result) throw new ValidationError(field, `Please fill in the ${field}.`);
+    if (result.length > max) throw new ValidationError(field, `Please keep the ${field} under ${max} letters.`);
+    return result;
+  };
+  const time = (value: unknown, field: string) => {
+    if (value === undefined || value === null || value === '') return null;
+    const ms = typeof value === 'number' ? value : Date.parse(String(value));
+    if (!Number.isFinite(ms)) throw new ValidationError(field, `Please give a valid ${field}.`);
+    return ms;
+  };
+  const startsAt = time(body.startsAt, 'start time');
+  if (startsAt === null) throw new ValidationError('startsAt', 'Please give a valid start time.');
+  return {
+    title: text(body.title, 'title', 80, true),
+    description: text(body.description, 'description', 1000),
+    location: text(body.location, 'location', 120),
+    startsAt,
+    endsAt: time(body.endsAt, 'end time'),
+  };
+}

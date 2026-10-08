@@ -74,6 +74,35 @@ export type ProfileInput = {
 
 export type LatestApp = { platform: 'ios' | 'android'; build: number; runtimeVersion: string; url: string };
 
+export type ChatMessage = {
+  id: number;
+  from: string;
+  to: string;
+  kind: 'text' | 'missed-call';
+  text: string;
+  createdAt: number;
+  readAt: number | null;
+};
+
+export type ChatSummary = {
+  user: PublicUser;
+  last: ChatMessage;
+  unread: number;
+  friend: boolean;
+  online: boolean;
+};
+
+export type TeaEvent = {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  startsAt: number;
+  endsAt: number | null;
+  going: number;
+  attending: boolean;
+};
+
 export type ReportReason = 'rude' | 'inappropriate' | 'money' | 'fake' | 'other';
 
 export class ApiError extends Error {
@@ -138,7 +167,7 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
 }
 
 export const api = {
-  config: () => request<{ iceServers: IceServer[]; online: number; supportEmail: string }>('/api/config', { auth: false }),
+  config: () => request<{ iceServers: IceServer[]; online: number; supportEmail: string; ageTestSkip?: boolean }>('/api/config', { auth: false }),
   latestApp: (platform: string) =>
     request<{ latest: LatestApp | null }>(`/api/app/latest?platform=${platform}`, { auth: false }).then((d) => d.latest ?? null),
   register: (profile: ProfileInput & { deviceId: string }) =>
@@ -146,10 +175,10 @@ export const api = {
   me: () => request<{ user: PublicUser; showAge?: boolean }>('/api/me').then(withUser),
   updateMe: (patch: Partial<ProfileInput>) =>
     request<{ user: PublicUser; showAge?: boolean }>('/api/me', { method: 'PATCH', body: patch }).then(withUser),
-  ageCheck: (birthYear: number, estimatedAge: number) =>
-    request<{ verified: boolean; reason?: string; user: PublicUser }>('/api/me/age-check', {
+  ageCheck: (birthYear: number, estimatedAge: number, test = false) =>
+    request<{ verified: boolean; reason?: string; estimatedAge?: number; user: PublicUser }>('/api/me/age-check', {
       method: 'POST',
-      body: { birthYear, estimatedAge, live: true },
+      body: test ? { birthYear, test: true } : { birthYear, estimatedAge, live: true },
     }).then(withUser),
   user: (id: string) => request<{ user: PublicUser }>(`/api/users/${id}`).then(withUser),
   uploadPhoto: (base64: string) => request<{ user: PublicUser }>('/api/me/photo', { method: 'PUT', body: { data: base64 } }).then(withUser),
@@ -161,5 +190,20 @@ export const api = {
   blocked: () => request<{ blocked: PublicUser[] }>('/api/blocks').then((d) => ({ blocked: (d.blocked ?? []).map(normalizeUser) })),
   block: (id: string) => request<{ ok: true }>(`/api/blocks/${id}`, { method: 'POST' }),
   unblock: (id: string) => request<{ ok: true }>(`/api/blocks/${id}`, { method: 'DELETE' }),
+  chats: () =>
+    request<{ chats: ChatSummary[]; unread: number }>('/api/chats').then((d) => ({
+      unread: d.unread ?? 0,
+      chats: (d.chats ?? []).map((c) => ({ ...c, user: normalizeUser(c.user) })),
+    })),
+  chat: (userId: string, before?: number) =>
+    request<{ user: PublicUser; friend: boolean; messages: ChatMessage[] }>(`/api/chats/${userId}${before ? `?before=${before}` : ''}`).then(withUser),
+  sendMessage: (userId: string, text: string) =>
+    request<{ message: ChatMessage }>(`/api/chats/${userId}`, { method: 'POST', body: { text } }),
+  markRead: (userId: string) => request<{ ok: true }>(`/api/chats/${userId}/read`, { method: 'POST' }),
+  savePushToken: (platform: 'android' | 'ios', token: string) =>
+    request<{ ok: true; enabled: boolean }>('/api/me/push', { method: 'PUT', body: { platform, token } }),
+  events: () => request<{ events: TeaEvent[] }>('/api/events').then((d) => d.events ?? []),
+  attend: (eventId: string, attending: boolean) =>
+    request<{ event: TeaEvent | null }>(`/api/events/${eventId}/attend`, { method: attending ? 'POST' : 'DELETE' }).then((d) => d.event),
   report: (userId: string, reason: ReportReason) => request<{ ok: true }>('/api/reports', { method: 'POST', body: { userId, reason } }),
 };

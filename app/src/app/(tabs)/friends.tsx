@@ -97,7 +97,7 @@ function statusText(friend: Friend) {
 
 function FriendRow({ friend, last }: { friend: Friend; last: boolean }) {
   const status = statusText(friend);
-  const canCall = friend.online && !friend.busy;
+  const canCall = !friend.busy;
   return (
     <Pressable
       accessibilityRole="button"
@@ -120,7 +120,7 @@ function FriendRow({ friend, last }: { friend: Friend; last: boolean }) {
         accessibilityLabel={canCall ? `Video call ${friend.name}` : `${friend.name} is not available to call`}
         onPress={() => {
           if (canCall) void callFriend(friend);
-          else toast(friend.busy ? `${firstName(friend.name)} is in another call` : `${firstName(friend.name)} is not here right now`, 'time');
+          else toast(`${firstName(friend.name)} is in another call`, 'time');
         }}
         hitSlop={8}
         style={({ pressed }) => [styles.callButton, !canCall && styles.callButtonIdle, pressed && { opacity: 0.8 }]}

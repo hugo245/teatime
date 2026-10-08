@@ -18,6 +18,8 @@ import { AppText } from '../components/AppText';
 import { Button } from '../components/Button';
 import { StatusBarStyle } from '../components/StatusBarStyle';
 import { isSimulator, postToSimulator } from '../lib/sim';
+import { openPendingNotification, startNotifications } from '../lib/notifications';
+import { useChats } from '../state/chats';
 import { useFriends } from '../state/friends';
 import { useSession } from '../state/session';
 import { useSettings } from '../state/settings';
@@ -72,6 +74,7 @@ export default function RootLayout() {
     if (status === 'signedOut') {
       resetCall();
       useFriends.getState().reset();
+      useChats.getState().reset();
     }
   }, [status]);
 
@@ -87,6 +90,11 @@ export default function RootLayout() {
     if (!ready) return;
     return watchForUpdates();
   }, [ready]);
+
+  useEffect(() => {
+    if (!ready || status !== 'signedIn' || justJoined) return;
+    void startNotifications(true).then(openPendingNotification);
+  }, [ready, status, justJoined]);
 
   useEffect(() => {
     if (ready) {
@@ -112,6 +120,7 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="edit-profile" />
             <Stack.Screen name="friend/[id]" />
+            <Stack.Screen name="chat/[id]" />
             <Stack.Screen name="blocked" />
             <Stack.Screen name="verify-age" />
           </Stack.Protected>

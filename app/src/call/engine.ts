@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import { create } from 'zustand';
 import { prepareCallAudio, releaseCallAudio, routeCallAudioToSpeaker } from '../../modules/call-audio/src';
 import { api, normalizeUser, type IceServer, type PublicUser, type ReportReason } from '../lib/api';
+import { clearCallNotification, notifyLocal } from '../lib/notifications';
 import { realtime, type ServerMessage } from '../lib/realtime';
 import { CameraError, createPeer, openCamera, type RtcCandidate, type RtcDescription, type RtcPeer, type RtcStream } from '../rtc';
 import { useFriends } from '../state/friends';
@@ -48,6 +49,7 @@ type CallState = {
   mediaError: 'denied' | 'unavailable' | null;
   topic: { text: string; index: number; mine: boolean } | null;
   reaction: { id: number; kind: Reaction; mine: boolean } | null;
+  ringingOffline: boolean;
 };
 
 export type Reaction = 'wave' | 'heart' | 'laugh' | 'clap';
@@ -66,6 +68,7 @@ const initialCall = {
   peerReconnecting: false,
   topic: null,
   reaction: null,
+  ringingOffline: false,
 };
 
 let reactionId = 0;
@@ -387,16 +390,19 @@ function handleMessage(message: ServerMessage) {
       return;
     }
     case 'call.ringing':
-      if (state.phase === 'outgoing') set({ callId: String(message.callId) });
+      if (state.phase === 'outgoing') set({ callId: String(message.callId), ringingOffline: message.offline === true });
       return;
     case 'call.incoming': {
       const callId = String(message.callId);
       const caller = normalizeUser(message.peer as PublicUser);
+      if (state.callId === callId && (state.phase === 'incoming' || state.phase === 'connecting' || state.phase === 'live')) return;
       if (state.phase === 'idle' || state.phase === 'searching' || state.phase === 'ended' || state.phase === 'preparing') {
         closeDialog();
         if (state.phase === 'ended') releaseMedia();
+        if (state.phase === 'searching') realtime.send({ type: 'meet.stop' });
         set({ phase: 'incoming', ...initialCall, callId, peer: caller, kind: 'friend', friendship: 'friends' });
         void startRinging();
+        notifyLocal('calls', `${caller.name} is calling you`, 'Tap to open TeaTime and answer.', { type: 'call', callId, userId: caller.id });
       } else {
         realtime.send({ type: 'call.decline', callId });
       }
@@ -410,6 +416,7 @@ function handleMessage(message: ServerMessage) {
         return;
       }
       stopRinging();
+      clearCallNotification(callId);
       closeDialog();
       teardownPeer();
       const initiator = message.initiator === true;
@@ -453,6 +460,7 @@ function handleMessage(message: ServerMessage) {
       if (message.callId !== state.callId) return;
       const reason = String(message.reason) as EndReason | 'cancelled';
       if (state.phase === 'incoming') {
+        clearCallNotification(state.callId ?? '');
         stopRinging();
         releaseMedia();
         const name = state.peer?.name;

@@ -11,7 +11,9 @@ export default function TabsLayout() {
       screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.bg } }}
     >
       <Tabs.Screen name="friends" />
+      <Tabs.Screen name="chats" />
       <Tabs.Screen name="index" />
+      <Tabs.Screen name="events" />
       <Tabs.Screen name="profile" />
     </Tabs>
   );

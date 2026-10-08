@@ -48,6 +48,17 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Add Firebase settings for notifications
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > google-services.json
+            echo "Firebase settings added"
+          else
+            echo "No GOOGLE_SERVICES_JSON secret, building without push notifications"
+          fi
+
       - name: Generate Android project
         run: npx expo prebuild --platform android --clean --no-install
 

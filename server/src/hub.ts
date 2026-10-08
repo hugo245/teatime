@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { PushMessage } from './push.js';
 import { toPublicUser, type Store, type User } from './store.js';
 
 export type HubSocket = {
@@ -45,6 +46,7 @@ export type HubOptions = {
   rematchCooldownMs?: number;
   rematchWaitMs?: number;
   matchIntervalMs?: number;
+  offlineRingMs?: number;
 };
 
 const OPEN = 1;
@@ -62,6 +64,8 @@ export class Hub {
   private reconnectGraceMs: number;
   private rematchCooldownMs: number;
   private rematchWaitMs: number;
+  private offlineRingMs: number;
+  onPush: ((userId: string, message: PushMessage) => void) | null = null;
 
   constructor(
     private store: Store,
@@ -71,6 +75,7 @@ export class Hub {
     this.reconnectGraceMs = options.reconnectGraceMs ?? 15_000;
     this.rematchCooldownMs = options.rematchCooldownMs ?? 120_000;
     this.rematchWaitMs = options.rematchWaitMs ?? 8_000;
+    this.offlineRingMs = options.offlineRingMs ?? 60_000;
     this.matchTimer = unref(setInterval(() => this.matchWaiting(), options.matchIntervalMs ?? 2_000));
   }
 
@@ -112,6 +117,10 @@ export class Hub {
     if (call?.state === 'active') {
       this.send(this.peerOf(call, user.id), { type: 'peer.reconnected', callId: call.id });
     }
+    if (call?.state === 'ringing' && call.callee === user.id) {
+      const caller = this.store.getUser(call.caller);
+      if (caller) this.send(user.id, { type: 'call.incoming', callId: call.id, peer: toPublicUser(caller) });
+    }
     if (!wasOnline) this.broadcastPresence(user.id, true);
     this.scheduleOnlineBroadcast();
     return client;
@@ -127,7 +136,7 @@ export class Hub {
     const callId = this.userCall.get(userId);
     const call = callId ? this.calls.get(callId) : undefined;
     if (call?.state === 'ringing') {
-      this.endCall(call, userId, 'unavailable');
+      if (call.caller === userId) this.endCall(call, userId, 'unavailable');
     } else if (call) {
       this.send(this.peerOf(call, userId), { type: 'peer.reconnecting', callId: call.id });
     }
@@ -137,7 +146,7 @@ export class Hub {
       if (this.clients.has(userId)) return;
       const currentCallId = this.userCall.get(userId);
       const current = currentCallId ? this.calls.get(currentCallId) : undefined;
-      if (current) this.endCall(current, userId, 'disconnected');
+      if (current?.state === 'active') this.endCall(current, userId, 'disconnected');
       this.broadcastPresence(userId, false);
     }, this.reconnectGraceMs);
     unref(timer);
@@ -337,10 +346,6 @@ export class Hub {
       this.send(callerId, { type: 'error', code: 'busy' });
       return;
     }
-    if (!this.clients.has(calleeId)) {
-      this.send(callerId, { type: 'call.unavailable', userId: calleeId, reason: 'offline' });
-      return;
-    }
     if (this.userCall.has(calleeId)) {
       this.send(callerId, { type: 'call.unavailable', userId: calleeId, reason: 'busy' });
       return;
@@ -358,12 +363,41 @@ export class Hub {
       state: 'ringing',
       createdAt: Date.now(),
     };
-    call.ringTimer = unref(setTimeout(() => this.endCall(call, calleeId, 'no-answer'), this.ringTimeoutMs));
+    const offline = !this.clients.has(calleeId);
+    call.ringTimer = unref(setTimeout(() => this.endCall(call, calleeId, 'no-answer'), offline ? this.offlineRingMs : this.ringTimeoutMs));
     this.calls.set(call.id, call);
     this.userCall.set(callerId, call.id);
     this.userCall.set(calleeId, call.id);
-    this.send(callerId, { type: 'call.ringing', callId: call.id, peer: toPublicUser(callee) });
+    this.send(callerId, { type: 'call.ringing', callId: call.id, peer: toPublicUser(callee), offline });
     this.send(calleeId, { type: 'call.incoming', callId: call.id, peer: toPublicUser(caller) });
+    if (offline) {
+      this.onPush?.(calleeId, {
+        title: `${caller.name} is calling you`,
+        body: 'Tap to open TeaTime and answer the video call.',
+        channel: 'calls',
+        tag: `call-${call.id}`,
+        data: { type: 'call', callId: call.id, userId: callerId },
+        ttlSeconds: Math.round(this.offlineRingMs / 1000),
+      });
+    }
+  }
+
+  private recordMissedCall(call: Call) {
+    const caller = this.store.getUser(call.caller);
+    const callee = this.store.getUser(call.callee);
+    if (!caller || !callee) return;
+    const message = this.store.addMessage(call.caller, call.callee, 'missed-call', '');
+    this.send(call.callee, { type: 'chat.message', message, user: toPublicUser(caller) });
+    this.send(call.caller, { type: 'chat.message', message, user: toPublicUser(callee) });
+    if (!this.clients.has(call.callee)) {
+      this.onPush?.(call.callee, {
+        title: `Missed call from ${caller.name}`,
+        body: 'Tap to call back.',
+        channel: 'messages',
+        tag: `call-${call.id}`,
+        data: { type: 'missed-call', userId: call.caller },
+      });
+    }
   }
 
   private answer(userId: string, callId: string) {
@@ -412,6 +446,7 @@ export class Hub {
     if (this.userCall.get(call.caller) === call.id) this.userCall.delete(call.caller);
     if (this.userCall.get(call.callee) === call.id) this.userCall.delete(call.callee);
     if (call.state === 'active') this.store.endCall(call.id);
+    if (call.kind === 'friend' && call.state === 'ringing' && ['no-answer', 'cancelled', 'unavailable'].includes(reason)) this.recordMissedCall(call);
     const peer = this.peerOf(call, endedBy);
     this.send(peer, { type: 'call.ended', callId: call.id, reason });
     if (reason === 'no-answer' || reason === 'unavailable' || reason === 'disconnected') {

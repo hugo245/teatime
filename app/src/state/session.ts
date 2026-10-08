@@ -14,7 +14,7 @@ type SessionState = {
   load(): Promise<void>;
   register(profile: ProfileInput, photoBase64: string | null): Promise<void>;
   setUser(user: PublicUser, showAge?: boolean): void;
-  checkAge(birthYear: number, estimatedAge: number): Promise<{ verified: boolean; reason?: string }>;
+  checkAge(birthYear: number, estimatedAge: number, test?: boolean): Promise<{ verified: boolean; reason?: string }>;
   finishJoining(): void;
   updateProfile(patch: Partial<ProfileInput>): Promise<void>;
   setPhoto(base64: string): Promise<void>;
@@ -106,8 +106,8 @@ export const useSession = create<SessionState>((set, get) => ({
     get().setUser(user, showAge);
   },
 
-  async checkAge(birthYear, estimatedAge) {
-    const result = await api.ageCheck(birthYear, estimatedAge);
+  async checkAge(birthYear, estimatedAge, test = false) {
+    const result = await api.ageCheck(birthYear, estimatedAge, test);
     get().setUser(result.user);
     return { verified: result.verified, reason: result.reason };
   },

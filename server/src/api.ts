@@ -2,6 +2,7 @@ import { Hub, type HubOptions, type HubSocket } from './hub.js';
 import { privacyPage, termsPage } from './pages.js';
 import { RateLimiter } from './rateLimit.js';
 import { Store, toPublicUser, type User } from './store.js';
+import { createFcmPusher, type PushMessage } from './push.js';
 import { createUpdates, type UpdatesOptions } from './updates.js';
 import {
   ValidationError,
@@ -12,7 +13,9 @@ import {
   parseInterests,
   parseJpeg,
   parseLanguages,
+  parseEventInput,
   parseLocation,
+  parseMessageText,
   parseName,
   parseReportReason,
 } from './validation.js';
@@ -32,6 +35,8 @@ export type ApiOptions = {
   log?: (message: string, extra?: Record<string, unknown>) => void;
   hub?: HubOptions;
   updates?: UpdatesOptions;
+  ageTestSkip?: boolean;
+  firebaseServiceAccount?: string;
 };
 
 export type Api = {
@@ -84,6 +89,25 @@ export function createApi(store: Store, options: ApiOptions): Api {
   const log = options.log ?? (() => {});
   const hub = new Hub(store, options.hub);
   const updates = createUpdates(options.updates);
+  const pusher = createFcmPusher(options.firebaseServiceAccount, log);
+
+  function sendPush(userId: string, message: PushMessage) {
+    const target = store.pushToken(userId);
+    if (!pusher || !target || target.platform !== 'android') return;
+    void pusher.send(target.token, message).then((result) => {
+      if (result === 'invalid-token') store.removePushToken(userId, target.token);
+    });
+  }
+
+  hub.onPush = sendPush;
+
+  function chatPartner(me: User, otherId: string) {
+    const other = store.getUser(otherId);
+    if (!other || other.banned || other.id === me.id || store.isBlockedEither(me.id, other.id)) {
+      throw new HttpError(404, 'Not found', 'not-found');
+    }
+    return other;
+  }
   const registerLimiter = new RateLimiter(options.registerLimitPerHour ?? 20, 60 * 60 * 1000);
   const friendLimiter = new RateLimiter(60, 60 * 60 * 1000);
   const reportLimiter = new RateLimiter(20, 60 * 60 * 1000);
@@ -159,7 +183,7 @@ export function createApi(store: Store, options: ApiOptions): Api {
     if (path === '/terms') return html(termsPage(options.supportEmail));
 
     if (path === '/api/config' && method === 'GET') {
-      return json(200, { iceServers: options.iceServers, online: hub.onlineCount, supportEmail: options.supportEmail, ageCheck: true });
+      return json(200, { iceServers: options.iceServers, online: hub.onlineCount, supportEmail: options.supportEmail, ageCheck: true, ageTestSkip: !!options.ageTestSkip, push: !!pusher });
     }
 
     if (path === '/api/updates/manifest' && method === 'GET') return updates.manifest(request);
@@ -229,23 +253,120 @@ export function createApi(store: Store, options: ApiOptions): Api {
 
     if (path === '/api/me/age-check' && method === 'POST') {
       const user = authenticate(request);
-      if (store.countVerifications(user.id, Date.now() - DAY) >= 5) {
+      if (store.countVerifications(user.id, Date.now() - DAY) >= 12) {
         throw new HttpError(429, 'You have tried a few times today. Please try again tomorrow.', 'rate-limited');
       }
       const body = await readJson(request);
       const birthYear = parseBirthYear(body.birthYear);
-      if (body.live !== true) throw new HttpError(400, 'Please use the live camera check.', 'not-live');
-      const estimatedAge = Number(body.estimatedAge);
       const claimedAge = new Date().getUTCFullYear() - birthYear;
+      const testSkip = body.test === true;
+      if (testSkip && !options.ageTestSkip) throw new HttpError(403, 'Testing is turned off.', 'test-off');
+      if (!testSkip && body.live !== true) throw new HttpError(400, 'Please use the live camera check.', 'not-live');
+      const estimatedAge = testSkip ? claimedAge : Number(body.estimatedAge);
       const result = checkAgeEstimate(claimedAge, estimatedAge);
       const id = crypto.randomUUID();
       store.createVerification(id, user.id, 'face', '');
       store.updateVerification(id, result.ok ? 'verified' : 'failed', `${birthYear}-01-01`, JSON.stringify({ claimedAge, estimatedAge }));
-      log('age check', { userId: user.id, claimedAge, estimatedAge: Math.round(estimatedAge), ok: result.ok });
-      if (!result.ok) return json(200, { verified: false, reason: result.reason, user: toPublicUser(user) });
+      log('age check', { userId: user.id, claimedAge, estimatedAge: Math.round(estimatedAge), ok: result.ok, test: testSkip });
+      if (!result.ok) {
+        return json(200, { verified: false, reason: result.reason, estimatedAge: Math.round(estimatedAge), user: toPublicUser(user) });
+      }
       const updated = store.setAgeVerified(user.id, `${birthYear}-01-01`)!;
       hub.notifyFriendsChanged(user.id);
       return json(200, { verified: true, user: toPublicUser(updated) });
+    }
+
+    if (path === '/api/me/push' && method === 'PUT') {
+      const user = authenticate(request);
+      const body = await readJson(request);
+      const platform = body.platform === 'android' || body.platform === 'ios' ? body.platform : null;
+      const token = typeof body.token === 'string' ? body.token.trim() : '';
+      if (!platform || token.length < 10 || token.length > 4096) throw new HttpError(400, 'Invalid push token.', 'invalid');
+      store.setPushToken(user.id, platform, token);
+      return json(200, { ok: true, enabled: !!pusher && platform === 'android' });
+    }
+
+    if (path === '/api/me/push' && method === 'DELETE') {
+      const user = authenticate(request);
+      store.removePushToken(user.id);
+      return json(200, { ok: true });
+    }
+
+    if (path === '/api/chats' && method === 'GET') {
+      const me = authenticate(request);
+      const friendIds = new Set(store.friendIds(me.id));
+      const chats = [];
+      let unread = 0;
+      for (const convo of store.conversations(me.id)) {
+        const other = store.getUser(convo.otherId);
+        if (!other || other.banned || store.isBlockedEither(me.id, other.id)) continue;
+        unread += convo.unread;
+        chats.push({
+          user: toPublicUser(other),
+          last: convo.last,
+          unread: convo.unread,
+          friend: friendIds.has(other.id),
+          online: hub.isOnline(other.id),
+        });
+      }
+      return json(200, { chats, unread });
+    }
+
+    const chatReadMatch = path.match(/^\/api\/chats\/([0-9a-f-]{36})\/read$/);
+    if (chatReadMatch && method === 'POST') {
+      const me = authenticate(request);
+      const other = chatPartner(me, chatReadMatch[1]!);
+      const at = store.markRead(me.id, other.id);
+      hub.send(other.id, { type: 'chat.read', userId: me.id, at });
+      return json(200, { ok: true });
+    }
+
+    const chatMatch = path.match(/^\/api\/chats\/([0-9a-f-]{36})$/);
+    if (chatMatch && method === 'GET') {
+      const me = authenticate(request);
+      const other = chatPartner(me, chatMatch[1]!);
+      const before = Number(url.searchParams.get('before')) || null;
+      return json(200, {
+        user: toPublicUser(other),
+        friend: store.areFriends(me.id, other.id),
+        messages: store.conversation(me.id, other.id, before, 60),
+      });
+    }
+
+    if (chatMatch && method === 'POST') {
+      const me = authenticate(request);
+      const other = chatPartner(me, chatMatch[1]!);
+      if (!store.areFriends(me.id, other.id)) throw new HttpError(403, 'You can only send messages to your friends.', 'not-friends');
+      if (store.messagesSentSince(me.id, Date.now() - 60_000) >= 20) {
+        throw new HttpError(429, 'Please wait a little before sending more messages.', 'rate-limited');
+      }
+      const body = await readJson(request);
+      const message = store.addMessage(me.id, other.id, 'text', parseMessageText(body.text));
+      hub.send(other.id, { type: 'chat.message', message, user: toPublicUser(me) });
+      if (!hub.isOnline(other.id)) {
+        sendPush(other.id, {
+          title: me.name,
+          body: message.text.length > 140 ? `${message.text.slice(0, 137)}...` : message.text,
+          channel: 'messages',
+          tag: `chat-${me.id}`,
+          data: { type: 'message', userId: me.id },
+        });
+      }
+      return json(201, { message });
+    }
+
+    if (path === '/api/events' && method === 'GET') {
+      const me = authenticate(request);
+      return json(200, { events: store.events(me.id) });
+    }
+
+    const attendMatch = path.match(/^\/api\/events\/([0-9a-f-]{36})\/attend$/);
+    if (attendMatch && (method === 'POST' || method === 'DELETE')) {
+      const me = authenticate(request);
+      if (!store.eventExists(attendMatch[1]!)) throw new HttpError(404, 'This event is no longer available.', 'not-found');
+      store.setAttending(attendMatch[1]!, me.id, method === 'POST');
+      const event = store.events(me.id).find((e) => e.id === attendMatch[1]);
+      return json(200, { event: event ?? null });
     }
 
     const photoMatch = path.match(/^\/api\/users\/([0-9a-f-]{36})\/photo$/);
@@ -363,6 +484,19 @@ export function createApi(store: Store, options: ApiOptions): Api {
     if (resolveMatch && method === 'POST') {
       requireAdmin(request);
       store.resolveReport(Number(resolveMatch[1]));
+      return json(200, { ok: true });
+    }
+
+    if (path === '/admin/events' && method === 'POST') {
+      requireAdmin(request);
+      const id = store.createEvent(parseEventInput(await readJson(request)));
+      return json(201, { id });
+    }
+
+    const adminEventMatch = path.match(/^\/admin\/events\/([0-9a-f-]{36})$/);
+    if (adminEventMatch && method === 'DELETE') {
+      requireAdmin(request);
+      store.deleteEvent(adminEventMatch[1]!);
       return json(200, { ok: true });
     }
 
