@@ -34,6 +34,8 @@ const config: ExpoConfig = {
   },
   android: {
     package: bundleIdentifier,
+    versionCode: Number(buildNumber),
+    permissions: ['android.permission.VIBRATE', 'android.permission.MODIFY_AUDIO_SETTINGS'],
     adaptiveIcon: {
       backgroundColor: '#2E6B4E',
       foregroundImage: './assets/adaptive-icon.png',

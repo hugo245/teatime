@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { Platform } from 'react-native';
 import { create } from 'zustand';
-import { prepareCallAudio, routeCallAudioToSpeaker } from '../../modules/call-audio/src';
+import { prepareCallAudio, releaseCallAudio, routeCallAudioToSpeaker } from '../../modules/call-audio/src';
 import { api, normalizeUser, type IceServer, type PublicUser, type ReportReason } from '../lib/api';
 import { realtime, type ServerMessage } from '../lib/realtime';
 import { CameraError, createPeer, openCamera, type RtcCandidate, type RtcDescription, type RtcPeer, type RtcStream } from '../rtc';
@@ -121,6 +121,7 @@ async function ensureMedia(): Promise<boolean> {
 }
 
 function releaseMedia() {
+  if (get().localStream) releaseCallAudio();
   const stream = get().localStream;
   stream?.getTracks().forEach((track) => track.stop());
   set({ localStream: null, micOn: true, cameraOn: true });

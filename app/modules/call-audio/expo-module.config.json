@@ -1,6 +1,9 @@
 {
-  "platforms": ["apple"],
+  "platforms": ["apple", "android"],
   "apple": {
     "modules": ["CallAudioModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.callaudio.CallAudioModule"]
   }
 }

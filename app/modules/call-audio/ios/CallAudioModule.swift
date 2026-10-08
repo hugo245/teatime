@@ -13,6 +13,8 @@ public class CallAudioModule: Module {
       CallAudioModule.configureWebRTCSession()
     }
 
+    Function("release") {}
+
     Function("routeToSpeakerIfNeeded") {
       let session = AVAudioSession.sharedInstance()
       let usesReceiver = session.currentRoute.outputs.contains { $0.portType == .builtInReceiver }

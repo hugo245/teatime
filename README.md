@@ -44,6 +44,7 @@ During a call there are four large buttons with labels: Mute, Camera, Add friend
 | `server/` | The TeaTime server: accounts, matching, friends, call signaling, moderation and the age check page. Runs on Cloudflare, Docker or plain Node.js |
 | `simulator/` | Two simulated iPhones in your browser, each running the real app |
 | `.github/workflows/ios.yml` | Builds `TeaTime.ipa` on a GitHub Mac and publishes it as a release |
+| `.github/workflows/android.yml` | Builds `TeaTime.apk` for Android phones and publishes it as a release |
 | `.github/workflows/ci.yml` | Runs the server tests, the app type check, the web build and a Docker smoke test |
 
 ## Try it in the simulator
@@ -82,6 +83,14 @@ Apple only runs apps that are signed with an Apple ID, so the file needs to be s
 5. On iOS 16 and newer, also turn on **Settings, Privacy and Security, Developer Mode** and restart the phone.
 
 With a free Apple ID the app keeps working for 7 days, after which you sign it again the same way. With a paid Apple Developer account it lasts a year and you can use TestFlight. [AltStore](https://altstore.io) works too.
+
+## Install it on Android (Samsung and others)
+
+The latest Android build is on the [android-latest release](https://github.com/hugo245/teatime/releases/tag/android-latest) as `TeaTime.apk`. It uses the same server, so Android and iPhone users meet and call each other.
+
+1. Open that page on the Android phone and tap `TeaTime.apk` to download it.
+2. Open the downloaded file. If the phone asks, allow installing apps from your browser or My Files.
+3. Tap **Install**, then **Open**.
 
 ### Connect the iPhone to a server
 
@@ -190,7 +199,7 @@ The server also serves the privacy policy at `/privacy` and the community rules 
 ## Good to know
 
 * A friend can only be called while their TeaTime app is open. Ringing a locked phone needs Apple push notifications with CallKit, which requires a paid developer account and push certificates.
-* The app is built for iPhone. The code is cross platform, but Android has not been set up or tested.
+* The Android app is built from the same code. It has been built automatically but not yet tested on a real Android phone.
 
 ## Development
 
