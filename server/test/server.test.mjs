@@ -452,3 +452,51 @@ test('serves config and health', async () => {
   const health = await api('/health');
   assert.equal(health.body.ok, true);
 });
+
+test('serves app updates from the release files', { skip: !!process.env.BASE_URL }, async () => {
+  const { createServer } = await import('node:http');
+  const files = {
+    '/ota-latest/manifest-android.json': { id: '1d6a3b2e-0000-4000-8000-000000000001', runtimeVersion: '3', launchAsset: { key: 'a' }, assets: [] },
+    '/android-latest/version.json': { build: 12, runtimeVersion: '3', url: 'https://example.org/TeaTime.apk' },
+  };
+  const releases = createServer((req, res) => {
+    const file = files[req.url];
+    res.writeHead(file ? 200 : 404, { 'content-type': 'application/json' });
+    res.end(file ? JSON.stringify(file) : '{}');
+  });
+  await new Promise((resolve) => releases.listen(0, '127.0.0.1', resolve));
+  const own = createTeaTimeServer({
+    databaseFile: ':memory:',
+    iceServers: [],
+    supportEmail: 'help@example.org',
+    updates: { releasesUrl: `http://127.0.0.1:${releases.address().port}` },
+  });
+  await new Promise((resolve) => own.http.listen(0, '127.0.0.1', resolve));
+  const ownBase = `http://127.0.0.1:${own.http.address().port}`;
+  try {
+    const update = await fetch(ownBase + '/api/updates/manifest', {
+      headers: { 'expo-platform': 'android', 'expo-runtime-version': '3', 'expo-protocol-version': '1' },
+    });
+    assert.equal(update.status, 200);
+    assert.equal(update.headers.get('expo-protocol-version'), '1');
+    assert.match(update.headers.get('content-type'), /^multipart\/mixed; boundary=/);
+    const text = await update.text();
+    assert.match(text, /name="manifest"/);
+    assert.match(text, /1d6a3b2e-0000-4000-8000-000000000001/);
+
+    const older = await fetch(ownBase + '/api/updates/manifest', { headers: { 'expo-platform': 'android', 'expo-runtime-version': '2' } });
+    assert.equal(older.status, 204);
+    assert.equal(older.headers.get('expo-protocol-version'), '1');
+
+    const missing = await fetch(ownBase + '/api/updates/manifest', { headers: { 'expo-platform': 'ios', 'expo-runtime-version': '3' } });
+    assert.equal(missing.status, 204);
+
+    const latest = await (await fetch(ownBase + '/api/app/latest?platform=android')).json();
+    assert.deepEqual(latest.latest, { platform: 'android', build: 12, runtimeVersion: '3', url: 'https://example.org/TeaTime.apk' });
+    const none = await (await fetch(ownBase + '/api/app/latest?platform=ios')).json();
+    assert.equal(none.latest, null);
+  } finally {
+    await own.close();
+    await new Promise((resolve) => releases.close(resolve));
+  }
+});

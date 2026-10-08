@@ -3,12 +3,20 @@ import type { ExpoConfig } from 'expo/config';
 const serverUrl = process.env.TEATIME_SERVER_URL || 'https://teatime.hugoplayzpersonal.workers.dev';
 const bundleIdentifier = process.env.TEATIME_BUNDLE_ID || 'com.hugo245.teatime';
 const buildNumber = process.env.TEATIME_BUILD_NUMBER || '1';
+const runtimeVersion = '2';
 
 const config: ExpoConfig = {
   name: 'TeaTime',
   slug: 'teatime',
   scheme: 'teatime',
   version: '1.0.0',
+  runtimeVersion,
+  updates: {
+    url: `${serverUrl.replace(/\/+$/, '')}/api/updates/manifest`,
+    enabled: true,
+    checkAutomatically: 'NEVER',
+    fallbackToCacheTimeout: 0,
+  },
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'light',
@@ -35,7 +43,11 @@ const config: ExpoConfig = {
   android: {
     package: bundleIdentifier,
     versionCode: Number(buildNumber),
-    permissions: ['android.permission.VIBRATE', 'android.permission.MODIFY_AUDIO_SETTINGS'],
+    permissions: [
+      'android.permission.VIBRATE',
+      'android.permission.MODIFY_AUDIO_SETTINGS',
+      'android.permission.REQUEST_INSTALL_PACKAGES',
+    ],
     adaptiveIcon: {
       backgroundColor: '#2E6B4E',
       foregroundImage: './assets/adaptive-icon.png',
@@ -49,6 +61,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    'expo-updates',
     [
       'expo-splash-screen',
       {

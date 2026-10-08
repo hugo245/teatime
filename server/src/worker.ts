@@ -17,6 +17,7 @@ type Env = {
   RECONNECT_GRACE_MS?: string;
   REMATCH_WAIT_MS?: string;
   MATCH_INTERVAL_MS?: string;
+  UPDATES_URL?: string;
 };
 
 function iceServers(env: Env): IceServer[] {
@@ -53,6 +54,7 @@ export class TeaTimeHub extends DurableObject<Env> {
         rematchWaitMs: num(env.REMATCH_WAIT_MS),
         matchIntervalMs: num(env.MATCH_INTERVAL_MS),
       },
+      updates: { releasesUrl: env.UPDATES_URL },
       log: (message, extra) => console.log(JSON.stringify({ message, ...extra })),
     });
     setInterval(() => this.api.hub.sweep(70_000), 15_000);

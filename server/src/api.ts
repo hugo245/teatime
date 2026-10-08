@@ -2,6 +2,7 @@ import { Hub, type HubOptions, type HubSocket } from './hub.js';
 import { privacyPage, termsPage } from './pages.js';
 import { RateLimiter } from './rateLimit.js';
 import { Store, toPublicUser, type User } from './store.js';
+import { createUpdates, type UpdatesOptions } from './updates.js';
 import {
   ValidationError,
   checkAgeEstimate,
@@ -30,6 +31,7 @@ export type ApiOptions = {
   registerLimitPerHour?: number;
   log?: (message: string, extra?: Record<string, unknown>) => void;
   hub?: HubOptions;
+  updates?: UpdatesOptions;
 };
 
 export type Api = {
@@ -81,6 +83,7 @@ function isLoopback(ip: string) {
 export function createApi(store: Store, options: ApiOptions): Api {
   const log = options.log ?? (() => {});
   const hub = new Hub(store, options.hub);
+  const updates = createUpdates(options.updates);
   const registerLimiter = new RateLimiter(options.registerLimitPerHour ?? 20, 60 * 60 * 1000);
   const friendLimiter = new RateLimiter(60, 60 * 60 * 1000);
   const reportLimiter = new RateLimiter(20, 60 * 60 * 1000);
@@ -157,6 +160,12 @@ export function createApi(store: Store, options: ApiOptions): Api {
 
     if (path === '/api/config' && method === 'GET') {
       return json(200, { iceServers: options.iceServers, online: hub.onlineCount, supportEmail: options.supportEmail, ageCheck: true });
+    }
+
+    if (path === '/api/updates/manifest' && method === 'GET') return updates.manifest(request);
+
+    if (path === '/api/app/latest' && method === 'GET') {
+      return json(200, { latest: await updates.latest(url.searchParams.get('platform')) });
     }
 
     if (path === '/api/register' && method === 'POST') {

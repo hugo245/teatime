@@ -1,0 +1,62 @@
+name: App update
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - 'app/**'
+      - '.github/workflows/updates.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: updates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPO_NO_TELEMETRY: '1'
+      TEATIME_SERVER_URL: ${{ vars.TEATIME_SERVER_URL }}
+      TEATIME_BUNDLE_ID: ${{ vars.TEATIME_BUNDLE_ID || 'com.hugo245.teatime' }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Export the app code
+        run: |
+          npx expo export --platform ios --platform android --output-dir "$RUNNER_TEMP/export"
+          npx expo config --type public --json > "$RUNNER_TEMP/export/expoConfig.json"
+
+      - name: Package the update
+        run: node scripts/make-update.mjs "$RUNNER_TEMP/export" "$RUNNER_TEMP/update" "https://github.com/${GITHUB_REPOSITORY}/releases/download/ota-latest"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ota-latest --yes --cleanup-tag || true
+          find "$RUNNER_TEMP/update" -type f ! -name 'manifest-*.json' -print0 | xargs -0 gh release create ota-latest \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "TeaTime app update" \
+            --notes "Over the air update from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Phones with TeaTime installed show an Update App button and download this by themselves."
+          gh release upload ota-latest "$RUNNER_TEMP"/update/manifest-*.json

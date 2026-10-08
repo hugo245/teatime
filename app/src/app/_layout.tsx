@@ -21,6 +21,7 @@ import { isSimulator, postToSimulator } from '../lib/sim';
 import { useFriends } from '../state/friends';
 import { useSession } from '../state/session';
 import { useSettings } from '../state/settings';
+import { watchForUpdates } from '../state/updates';
 import { colors } from '../theme';
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -81,6 +82,11 @@ export default function RootLayout() {
   }, [status, justJoined]);
 
   const ready = (fontsLoaded || !!fontError) && settingsLoaded && status !== 'loading';
+
+  useEffect(() => {
+    if (!ready) return;
+    return watchForUpdates();
+  }, [ready]);
 
   useEffect(() => {
     if (ready) {

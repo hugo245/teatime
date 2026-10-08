@@ -60,6 +60,17 @@ jobs:
           mkdir -p "$RUNNER_TEMP/apk"
           cp android/app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apk/TeaTime.apk"
           ls -lh "$RUNNER_TEMP/apk/TeaTime.apk"
+          npx expo config --type public --json > "$RUNNER_TEMP/config.json"
+          node -e '
+            const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            const info = {
+              build: Number(process.env.TEATIME_BUILD_NUMBER),
+              runtimeVersion: config.runtimeVersion,
+              url: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/android-latest/TeaTime.apk`,
+            };
+            require("fs").writeFileSync(process.argv[2], JSON.stringify(info));
+          ' "$RUNNER_TEMP/config.json" "$RUNNER_TEMP/apk/version.json"
+          cat "$RUNNER_TEMP/apk/version.json"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -72,7 +83,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete android-latest --yes --cleanup-tag || true
-          gh release create android-latest "$RUNNER_TEMP/apk/TeaTime.apk" \
+          gh release create android-latest "$RUNNER_TEMP/apk/TeaTime.apk" "$RUNNER_TEMP/apk/version.json" \
             --target "$GITHUB_SHA" \
             --title "TeaTime for Android (build $TEATIME_BUILD_NUMBER)" \
-            --notes "Android build from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Download TeaTime.apk on the phone, open it and allow installing from this source."
+            --notes "Android build from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Download TeaTime.apk on the phone, open it and allow installing from this source. Phones that already have TeaTime show an Update App button instead."

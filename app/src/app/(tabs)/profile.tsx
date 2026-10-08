@@ -11,10 +11,12 @@ import { ListRow } from '../../components/ListRow';
 import { PhotoSheet } from '../../components/PhotoSheet';
 import { Screen } from '../../components/Screen';
 import { ServerSheet } from '../../components/ServerSheet';
+import { UpdateCard } from '../../components/UpdateCard';
 import { VerifiedBadge } from '../../components/VerifiedBadge';
 import { languageName } from '../../lib/languages';
 import { appVersion, serverUrl } from '../../lib/config';
 import { useSession } from '../../state/session';
+import { buildNumber } from '../../state/updates';
 import { useSettings, type TextSize } from '../../state/settings';
 import { alertMessage, confirm, toast } from '../../state/ui';
 import { colors, fonts, radius, space } from '../../theme';
@@ -53,6 +55,7 @@ export default function ProfileScreen() {
 
   return (
     <Screen title="Profile">
+      <UpdateCard />
       <Card style={styles.profileCard}>
         <Pressable
           accessibilityRole="button"
@@ -186,6 +189,7 @@ export default function ProfileScreen() {
       >
         <AppText variant="caption" color={colors.textFaint} center>
           TeaTime version {appVersion}
+          {buildNumber ? ` (build ${buildNumber})` : ''}
         </AppText>
       </Pressable>
 

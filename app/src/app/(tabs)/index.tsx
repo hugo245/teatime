@@ -9,6 +9,7 @@ import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
+import { UpdateCard } from '../../components/UpdateCard';
 import { firstName, greeting } from '../../lib/format';
 import { useConnection } from '../../lib/realtime';
 import { useFriends } from '../../state/friends';
@@ -39,6 +40,8 @@ export default function MeetScreen() {
             {user ? firstName(user.name) : 'Welcome'}
           </AppText>
         </View>
+
+        <UpdateCard />
 
         <Card style={styles.hero}>
           <Image

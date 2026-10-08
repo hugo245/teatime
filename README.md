@@ -92,6 +92,21 @@ The latest Android build is on the [android-latest release](https://github.com/h
 2. Open the downloaded file. If the phone asks, allow installing apps from your browser or My Files.
 3. Tap **Install**, then **Open**.
 
+## Updates without sending the app again
+
+Install the app once. After that, people get new versions from inside the app:
+
+1. Every time the app code changes on GitHub, the **App update** workflow publishes the new version on the [ota-latest release](https://github.com/hugo245/teatime/releases/tag/ota-latest).
+2. When TeaTime opens, it asks the server if there is something new. If there is, the **Meet** and **Profile** screens show a card with an **Update App** button.
+3. Tapping **Update App** downloads the new version and restarts TeaTime with it. This works on iPhone and Android.
+
+Bigger changes that touch the phone side of the app (a new camera or sound library, for example) cannot be sent this way. For those, raise `runtimeVersion` in `app/app.config.ts`. Then:
+
+- **Android** shows the same **Update App** button. It downloads the new `TeaTime.apk` and opens the Android installer, where you tap **Install**. The first time, Android asks to allow TeaTime to install apps.
+- **iPhone** apps installed with Sideloadly cannot install a new app file by themselves, Apple does not allow it. Install the new `TeaTime.ipa` with Sideloadly once more. On the App Store or TestFlight this happens automatically.
+
+Phones only get updates made for their own `runtimeVersion`, so an update never breaks an older install.
+
 ### Connect the iPhone to a server
 
 The app talks to a TeaTime server to find people and set up calls.
@@ -152,6 +167,7 @@ docker run -p 8080:8080 -v teatime-data:/data \
 | `TRUST_PROXY` | Set to `1` behind a proxy or load balancer so rate limits see real addresses |
 | `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL` | Your TURN relay, see below |
 | `ICE_SERVERS` | Full WebRTC ICE server list as JSON, if you prefer to set it directly |
+| `UPDATES_URL` | Where app updates are downloaded from, default `https://github.com/hugo245/teatime/releases/download` |
 
 ### TURN relay for mobile networks
 

@@ -7,6 +7,7 @@ import { createApi, type IceServer } from './api.js';
 import type { Hub, HubOptions } from './hub.js';
 import { NodeSqlDriver } from './nodeDb.js';
 import { Store } from './store.js';
+import type { UpdatesOptions } from './updates.js';
 
 export type { IceServer } from './api.js';
 
@@ -27,6 +28,7 @@ export type ServerOptions = {
   trustProxy?: boolean;
   log?: (message: string, extra?: Record<string, unknown>) => void;
   hub?: HubOptions;
+  updates?: UpdatesOptions;
 };
 
 export type TeaTimeServer = {

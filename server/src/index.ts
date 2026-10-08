@@ -38,6 +38,7 @@ const server = createTeaTimeServer({
   staticRoots: staticRootsFromEnv(),
   trustProxy: process.env.TRUST_PROXY === '1',
   registerLimitPerHour: process.env.REGISTER_LIMIT_PER_HOUR ? Number(process.env.REGISTER_LIMIT_PER_HOUR) : undefined,
+  updates: { releasesUrl: process.env.UPDATES_URL },
   log,
 });
 

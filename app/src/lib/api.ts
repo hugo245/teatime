@@ -72,6 +72,8 @@ export type ProfileInput = {
   showAge: boolean;
 };
 
+export type LatestApp = { platform: 'ios' | 'android'; build: number; runtimeVersion: string; url: string };
+
 export type ReportReason = 'rude' | 'inappropriate' | 'money' | 'fake' | 'other';
 
 export class ApiError extends Error {
@@ -137,6 +139,8 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
 
 export const api = {
   config: () => request<{ iceServers: IceServer[]; online: number; supportEmail: string }>('/api/config', { auth: false }),
+  latestApp: (platform: string) =>
+    request<{ latest: LatestApp | null }>(`/api/app/latest?platform=${platform}`, { auth: false }).then((d) => d.latest ?? null),
   register: (profile: ProfileInput & { deviceId: string }) =>
     request<{ token: string; user: PublicUser }>('/api/register', { method: 'POST', body: profile, auth: false }).then(withUser),
   me: () => request<{ user: PublicUser; showAge?: boolean }>('/api/me').then(withUser),
