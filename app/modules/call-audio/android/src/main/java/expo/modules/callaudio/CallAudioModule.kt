@@ -18,7 +18,7 @@ class CallAudioModule : Module() {
     }
 
     Function("routeToSpeakerIfNeeded") {
-      val manager = audioManager ?: return@Function
+      val manager = audioManager ?: return@Function null
       manager.mode = AudioManager.MODE_IN_COMMUNICATION
       val outputs = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
       val headset = outputs.any {
@@ -35,7 +35,7 @@ class CallAudioModule : Module() {
     }
 
     Function("release") {
-      val manager = audioManager ?: return@Function
+      val manager = audioManager ?: return@Function null
       @Suppress("DEPRECATION")
       manager.isSpeakerphoneOn = false
       manager.mode = AudioManager.MODE_NORMAL
