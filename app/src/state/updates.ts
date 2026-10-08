@@ -2,13 +2,13 @@ import * as Application from 'expo-application';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Updates from 'expo-updates';
-import { AppState, Platform } from 'react-native';
+import { AppState, Linking, Platform } from 'react-native';
 import { create } from 'zustand';
 import { api } from '../lib/api';
 import { isSimulator } from '../lib/sim';
 
 type Kind = 'none' | 'quick' | 'install' | 'reinstall';
-type Phase = 'idle' | 'downloading' | 'installing' | 'failed';
+type Phase = 'idle' | 'downloading' | 'installing' | 'failed' | 'needs-store';
 
 type UpdatesState = {
   kind: Kind;
@@ -67,6 +67,20 @@ export const useUpdates = create<UpdatesState>((set, get) => ({
   async apply() {
     const { kind, apkUrl, phase } = get();
     if (phase === 'downloading' || phase === 'installing') return;
+    if (kind === 'reinstall' && apkUrl) {
+      const link = encodeURIComponent(apkUrl);
+      for (const store of ['sidestore', 'altstore']) {
+        try {
+          await Linking.openURL(`${store}://install?url=${link}`);
+          set({ phase: 'idle' });
+          return;
+        } catch {
+          continue;
+        }
+      }
+      set({ phase: 'needs-store' });
+      return;
+    }
     set({ phase: 'downloading', progress: 0 });
     try {
       if (kind === 'quick') {

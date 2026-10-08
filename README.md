@@ -116,7 +116,15 @@ Install the app once. After that, people get new versions from inside the app:
 Bigger changes that touch the phone side of the app (a new camera or sound library, for example) cannot be sent this way. For those, raise `runtimeVersion` in `app/app.config.ts`. Then:
 
 - **Android** shows the same **Update App** button. It downloads the new `TeaTime.apk` and opens the Android installer, where you tap **Install**. The first time, Android asks to allow TeaTime to install apps.
-- **iPhone** apps installed with Sideloadly cannot install a new app file by themselves, Apple does not allow it. Install the new `TeaTime.ipa` with Sideloadly once more. On the App Store or TestFlight this happens automatically.
+- **iPhone** shows the same card with an **Update App** button. Apple does not let an app install a new version of itself, so the button hands the new `TeaTime.ipa` to [SideStore](https://sidestore.io), a free app that installs and refreshes sideloaded apps right on the iPhone. SideStore opens, installs the update and TeaTime is up to date. On the App Store or TestFlight this happens automatically.
+
+### One tap iPhone updates with SideStore
+
+1. Set up SideStore once by following the guide on [sidestore.io](https://sidestore.io). It needs a computer one time. After that it works on the iPhone alone and also renews the 7 day free signing for you.
+2. Install TeaTime through SideStore instead of Sideloadly: in SideStore open **My Apps**, tap **+** and pick `TeaTime.ipa`. If TeaTime was installed with Sideloadly before, delete that copy first so there is only one. You may need to set up your profile again after switching.
+3. From then on, when a bigger update comes out, TeaTime shows **Update App**. Tap it, SideStore installs the new version, done.
+
+Without SideStore the button explains that the update has to be installed with Sideloadly again.
 
 Phones only get updates made for their own `runtimeVersion`, so an update never breaks an older install.
 

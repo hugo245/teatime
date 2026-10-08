@@ -21,13 +21,18 @@ export function UpdateCard() {
           <View style={styles.icon}>
             <Ionicons name="sparkles" size={24} color={colors.primary} />
           </View>
-          <View style={{ flex: 1, gap: 2 }}>
+          <View style={{ flex: 1, gap: 2 }} accessibilityLiveRegion="polite">
             <AppText variant="bodyStrong">A new version of TeaTime is ready</AppText>
             <AppText variant="caption" color={colors.textMuted}>
-              This one has to be installed again on this iPhone, the same way TeaTime was installed the first time. Your profile and friends stay.
+              {phase === 'needs-store'
+                ? 'One tap updates need the free SideStore app on this iPhone. Until then, install the new version the same way TeaTime was installed the first time.'
+                : 'Tap the button. SideStore opens and installs the new version. Your profile and friends stay.'}
             </AppText>
           </View>
         </View>
+        {phase !== 'needs-store' ? (
+          <Button label="Update App" icon="download" size="medium" onPress={() => void apply()} accessibilityHint="Opens SideStore to install the newest TeaTime" />
+        ) : null}
       </Card>
     );
   }
