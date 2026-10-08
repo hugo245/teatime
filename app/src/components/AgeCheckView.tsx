@@ -5,7 +5,7 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { serverUrl } from '../lib/config';
+import { defaultServerUrl, serverUrl } from '../lib/config';
 import { colors, radius } from '../theme';
 import { AppText } from './AppText';
 
@@ -20,7 +20,7 @@ export type AgeCheckMessage =
   | { type: 'nocamera'; detail?: string }
   | { type: 'error'; detail?: string };
 
-export function AgeCheckView({ onMessage }: { onMessage: (message: AgeCheckMessage) => void }) {
+function SnapshotAgeCheck({ onMessage }: { onMessage: (message: AgeCheckMessage) => void }) {
   const camera = useRef<CameraView | null>(null);
   const web = useRef<WebView | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
@@ -139,7 +139,7 @@ export function AgeCheckView({ onMessage }: { onMessage: (message: AgeCheckMessa
       </View>
       <WebView
         ref={web}
-        source={{ uri: `${serverUrl()}/age-check/?mode=frames` }}
+        source={{ uri: `${ageCheckBase()}/age-check/?mode=frames` }}
         style={styles.hidden}
         originWhitelist={['*']}
         javaScriptEnabled
@@ -151,9 +151,77 @@ export function AgeCheckView({ onMessage }: { onMessage: (message: AgeCheckMessa
   );
 }
 
+function ageCheckBase() {
+  const fallback = defaultServerUrl();
+  const current = serverUrl();
+  if (current.startsWith('https://')) return current;
+  return fallback.startsWith('https://') ? fallback : current;
+}
+
+export function AgeCheckView({ onMessage }: { onMessage: (message: AgeCheckMessage) => void }) {
+  const [permission, requestPermission] = useCameraPermissions();
+  const [mode, setMode] = useState<'live' | 'snapshots'>('live');
+  const done = useRef(false);
+  const report = useRef(onMessage);
+  report.current = onMessage;
+
+  useEffect(() => {
+    if (!permission) return;
+    if (!permission.granted) {
+      if (permission.canAskAgain) void requestPermission();
+      else if (!done.current) {
+        done.current = true;
+        report.current({ type: 'nocamera', detail: 'permission denied' });
+      }
+    }
+  }, [permission, requestPermission]);
+
+  if (mode === 'snapshots') return <SnapshotAgeCheck onMessage={onMessage} />;
+  if (!permission?.granted) return <View style={styles.root} />;
+
+  return (
+    <WebView
+      source={{ uri: `${ageCheckBase()}/age-check/` }}
+      style={styles.live}
+      originWhitelist={['*']}
+      javaScriptEnabled
+      allowsInlineMediaPlayback
+      mediaPlaybackRequiresUserAction={false}
+      mediaCapturePermissionGrantType="grant"
+      scrollEnabled={false}
+      bounces={false}
+      onMessage={(event) => {
+        let message: AgeCheckMessage;
+        try {
+          message = JSON.parse(event.nativeEvent.data) as AgeCheckMessage;
+        } catch {
+          return;
+        }
+        if (message.type === 'nocamera') {
+          setMode('snapshots');
+          return;
+        }
+        if ((message.type === 'result' || message.type === 'timeout' || message.type === 'error') && !done.current) {
+          done.current = true;
+          onMessage(message);
+        }
+      }}
+      onError={(event) => {
+        if (done.current) return;
+        done.current = true;
+        onMessage({ type: 'error', detail: `page: ${event.nativeEvent.description}` });
+      }}
+    />
+  );
+}
+
 const SIZE = 260;
 
 const styles = StyleSheet.create({
+  live: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
   root: {
     flex: 1,
     alignItems: 'center',
