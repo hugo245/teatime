@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -12,6 +13,7 @@ export type AgeCheckMessage =
   | { type: 'ready' }
   | { type: 'status'; text: string; turn: boolean; progress: number }
   | { type: 'frameDone' }
+  | { type: 'rotation'; degrees: number }
   | { type: 'debug'; detail?: string }
   | { type: 'result'; age: number; samples: number; live: boolean }
   | { type: 'timeout' }
@@ -25,6 +27,8 @@ export function AgeCheckView({ onMessage }: { onMessage: (message: AgeCheckMessa
   const [cameraReady, setCameraReady] = useState(false);
   const [pageReady, setPageReady] = useState(false);
   const [status, setStatus] = useState({ text: 'Getting ready', turn: false, progress: 0 });
+  const [frame, setFrame] = useState<string | null>(null);
+  const [rotation, setRotation] = useState(0);
   const busy = useRef(false);
   const done = useRef(false);
   const failures = useRef(0);
@@ -63,6 +67,7 @@ export function AgeCheckView({ onMessage }: { onMessage: (message: AgeCheckMessa
         return;
       }
       failures.current = 0;
+      setFrame(saved.uri);
       web.current?.injectJavaScript(`window.__teatimeFrame("data:image/jpeg;base64,${saved.base64}"); true;`);
     } catch (error) {
       busy.current = false;
@@ -87,6 +92,7 @@ export function AgeCheckView({ onMessage }: { onMessage: (message: AgeCheckMessa
       return;
     }
     if (message.type === 'ready') setPageReady(true);
+    else if (message.type === 'rotation') setRotation(message.degrees);
     else if (message.type === 'status') setStatus({ text: message.text, turn: message.turn, progress: message.progress });
     else if (message.type === 'frameDone') {
       busy.current = false;
@@ -110,6 +116,14 @@ export function AgeCheckView({ onMessage }: { onMessage: (message: AgeCheckMessa
               animateShutter={false}
               onCameraReady={() => setCameraReady(true)}
               onMountError={(event) => finish({ type: 'nocamera', detail: event.message })}
+            />
+          ) : null}
+          {frame ? (
+            <Image
+              source={{ uri: frame }}
+              style={[StyleSheet.absoluteFill, { transform: [{ scaleX: -1 }, { rotate: `${rotation}deg` }] }]}
+              contentFit="cover"
+              transition={0}
             />
           ) : null}
         </View>

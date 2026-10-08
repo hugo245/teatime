@@ -89,9 +89,78 @@
         return false;
       }
 
-      function analyze(input) {
+      function detect(input) {
+        return faceapi.detectSingleFace(input, options).withFaceLandmarks(true).withAgeAndGender();
+      }
+
+      var rotation = 0;
+      var locked = false;
+      var votes = { degrees: -1, count: 0 };
+      var misses = 0;
+
+      function rotated(img, degrees) {
+        if (!degrees) return img;
+        var w = img.naturalWidth || img.width;
+        var h = img.naturalHeight || img.height;
+        var canvas = document.createElement('canvas');
+        canvas.width = degrees % 180 ? h : w;
+        canvas.height = degrees % 180 ? w : h;
+        var ctx = canvas.getContext('2d');
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate((degrees * Math.PI) / 180);
+        ctx.drawImage(img, -w / 2, -h / 2);
+        return canvas;
+      }
+
+      function calibrate(img) {
+        var best = null;
+        var bestDegrees = 0;
+        var chain = Promise.resolve();
+        [0, 90, 180, 270].forEach(function (degrees) {
+          chain = chain.then(function () {
+            return detect(rotated(img, degrees)).then(function (result) {
+              if (result && (!best || result.detection.score > best.detection.score)) {
+                best = result;
+                bestDegrees = degrees;
+              }
+            });
+          });
+        });
+        return chain.then(function () {
+          if (!best || best.detection.score < 0.75) return null;
+          if (votes.degrees === bestDegrees) votes.count += 1;
+          else votes = { degrees: bestDegrees, count: 1 };
+          if (votes.count >= 2) {
+            locked = true;
+            rotation = bestDegrees;
+            misses = 0;
+            send({ type: 'rotation', degrees: rotation });
+            return best;
+          }
+          setStatus('Look straight at the camera');
+          return null;
+        });
+      }
+
+      function detectAnyRotation(img) {
+        if (!locked) return calibrate(img);
+        return detect(rotated(img, rotation)).then(function (result) {
+          if (result && result.detection.score >= 0.6) {
+            misses = 0;
+            return result;
+          }
+          misses += 1;
+          if (misses >= 6 && state.phase === 'straight') {
+            locked = false;
+            votes = { degrees: -1, count: 0 };
+          }
+          return null;
+        });
+      }
+
+      function analyze(detection) {
         if (finished || timedOut()) return Promise.resolve();
-        return faceapi.detectSingleFace(input, options).withFaceLandmarks(true).withAgeAndGender().then(function (result) {
+        return detection.then(function (result) {
           if (finished) return;
           if (!result || result.detection.score < 0.6) {
             if (Date.now() - state.lastSeen > 4000) setStatus('We cannot see your face. Hold the phone in front of you, in good light.');
@@ -130,7 +199,7 @@
 
       function cameraLoop() {
         if (finished) return;
-        analyze(video).catch(function () { return null; }).then(function () {
+        analyze(detect(video)).catch(function () { return null; }).then(function () {
           if (!finished) setTimeout(cameraLoop, 120);
         });
       }
@@ -152,7 +221,7 @@
       window.__teatimeFrame = function (dataUrl) {
         var img = new Image();
         img.onload = function () {
-          analyze(img).catch(function (error) {
+          analyze(detectAnyRotation(img)).catch(function (error) {
             send({ type: 'debug', detail: String((error && error.message) || error) });
           }).then(function () {
             send({ type: 'frameDone' });
