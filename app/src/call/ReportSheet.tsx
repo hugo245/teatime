@@ -19,9 +19,10 @@ type Props = {
   visible: boolean;
   onClose: () => void;
   onReport: (reason: ReportReason) => Promise<void>;
+  description?: string;
 };
 
-export function ReportSheet({ name, visible, onClose, onReport }: Props) {
+export function ReportSheet({ name, visible, onClose, onReport, description }: Props) {
   const [sending, setSending] = useState<ReportReason | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +45,7 @@ export function ReportSheet({ name, visible, onClose, onReport }: Props) {
         Report {name}
       </AppText>
       <AppText variant="body" color={colors.textMuted}>
-        What happened? The call will end and you will not be matched with {name} again.
+        {description ?? `What happened? The call will end and you will not be matched with ${name} again.`}
       </AppText>
       <View style={{ gap: 10, marginTop: 4 }}>
         {REASONS.map((reason) => (

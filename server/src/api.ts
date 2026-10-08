@@ -2,7 +2,9 @@ import { Hub, type HubOptions, type HubSocket } from './hub.js';
 import { privacyPage, termsPage } from './pages.js';
 import { RateLimiter } from './rateLimit.js';
 import { Store, toPublicUser, type User } from './store.js';
+import { createModeration, isModerationAction } from './moderation.js';
 import { createFcmPusher, type PushMessage } from './push.js';
+import { createTurnProvider, type TurnOptions } from './turn.js';
 import { createUpdates, type UpdatesOptions } from './updates.js';
 import {
   ValidationError,
@@ -37,6 +39,8 @@ export type ApiOptions = {
   updates?: UpdatesOptions;
   ageTestSkip?: boolean;
   firebaseServiceAccount?: string;
+  discordWebhookUrl?: string;
+  turn?: TurnOptions;
 };
 
 export type Api = {
@@ -74,11 +78,32 @@ function json(status: number, body: unknown) {
   });
 }
 
+function privateHtml(body: string, status = 200) {
+  return new Response(body, {
+    status,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'referrer-policy': 'no-referrer' },
+  });
+}
+
 function html(body: string) {
   return new Response(body, {
     status: 200,
     headers: { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=3600' },
   });
+}
+
+const VOICE_TYPES = new Set(['audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/mpeg', 'audio/webm', 'audio/ogg', 'audio/wav', 'audio/3gpp']);
+
+function decodeBase64(value: unknown): Uint8Array | null {
+  if (typeof value !== 'string' || !value) return null;
+  try {
+    const binary = atob(value.replace(/^data:[^,]+,/, ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  } catch {
+    return null;
+  }
 }
 
 function isLoopback(ip: string) {
@@ -100,6 +125,33 @@ export function createApi(store: Store, options: ApiOptions): Api {
   }
 
   hub.onPush = sendPush;
+  const moderation = createModeration({ store, hub, webhookUrl: options.discordWebhookUrl, log });
+  const turnServers = createTurnProvider(options.turn ?? {}, log);
+
+  function withPeople(event: ReturnType<Store['events']>[number]) {
+    return {
+      ...event,
+      people: store.eventPeople(event.id).map((u) => ({ id: u.id, name: u.name, photoUrl: toPublicUser(u).photoUrl })),
+    };
+  }
+
+  function sendChatMessage(me: User, other: User, kind: 'voice' | 'plan', body: string, push: { title: string; body: string }) {
+    const message = store.addMessage(me.id, other.id, kind, body);
+    hub.send(other.id, { type: 'chat.message', message, user: toPublicUser(me) });
+    if (!hub.isOnline(other.id)) {
+      sendPush(other.id, { ...push, channel: 'messages', tag: `chat-${me.id}`, data: { type: 'message', userId: me.id } });
+    }
+    return message;
+  }
+
+  function friendPartner(me: User, otherId: string) {
+    const other = chatPartner(me, otherId);
+    if (!store.areFriends(me.id, other.id)) throw new HttpError(403, 'You can only send messages to your friends.', 'not-friends');
+    if (store.messagesSentSince(me.id, Date.now() - 60_000) >= 20) {
+      throw new HttpError(429, 'Please wait a little before sending more messages.', 'rate-limited');
+    }
+    return other;
+  }
 
   function chatPartner(me: User, otherId: string) {
     const other = store.getUser(otherId);
@@ -183,7 +235,7 @@ export function createApi(store: Store, options: ApiOptions): Api {
     if (path === '/terms') return html(termsPage(options.supportEmail));
 
     if (path === '/api/config' && method === 'GET') {
-      return json(200, { iceServers: options.iceServers, online: hub.onlineCount, supportEmail: options.supportEmail, ageCheck: true, ageTestSkip: !!options.ageTestSkip, push: !!pusher });
+      return json(200, { iceServers: [...options.iceServers, ...(await turnServers())], online: hub.onlineCount, supportEmail: options.supportEmail, ageCheck: true, ageTestSkip: !!options.ageTestSkip, push: !!pusher });
     }
 
     if (path === '/api/updates/manifest' && method === 'GET') return updates.manifest(request);
@@ -276,6 +328,14 @@ export function createApi(store: Store, options: ApiOptions): Api {
       return json(200, { verified: true, user: toPublicUser(updated) });
     }
 
+    if (path === '/api/notices/seen' && method === 'POST') {
+      const user = authenticate(request);
+      const body = await readJson(request);
+      const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter((n) => Number.isInteger(n)) : [];
+      store.markNoticesSeen(user.id, ids);
+      return json(200, { ok: true });
+    }
+
     if (path === '/api/me/push' && method === 'PUT') {
       const user = authenticate(request);
       const body = await readJson(request);
@@ -321,6 +381,68 @@ export function createApi(store: Store, options: ApiOptions): Api {
       return json(200, { ok: true });
     }
 
+    const voiceMatch = path.match(/^\/api\/chats\/([0-9a-f-]{36})\/voice$/);
+    if (voiceMatch && method === 'POST') {
+      const me = authenticate(request);
+      const other = friendPartner(me, voiceMatch[1]!);
+      const body = await readJson(request, 2_000_000);
+      const type = typeof body.type === 'string' ? body.type.split(';')[0]!.trim() : '';
+      if (!VOICE_TYPES.has(type)) throw new HttpError(400, 'This voice message could not be sent.', 'invalid');
+      const seconds = Math.round(Number(body.seconds));
+      if (!Number.isFinite(seconds) || seconds < 1 || seconds > 120) throw new HttpError(400, 'Voice messages can be up to 2 minutes long.', 'invalid');
+      const data = decodeBase64(body.data);
+      if (!data || data.length < 200 || data.length > 1_400_000) throw new HttpError(400, 'This voice message could not be sent.', 'invalid');
+      const id = store.saveVoice(me.id, type, data);
+      const message = sendChatMessage(me, other, 'voice', JSON.stringify({ id, seconds }), { title: me.name, body: 'Sent you a voice message' });
+      return json(201, { message });
+    }
+
+    const planMatch = path.match(/^\/api\/chats\/([0-9a-f-]{36})\/plan$/);
+    if (planMatch && method === 'POST') {
+      const me = authenticate(request);
+      const other = friendPartner(me, planMatch[1]!);
+      const body = await readJson(request);
+      const at = Number(body.at);
+      if (!Number.isFinite(at) || at < Date.now() || at > Date.now() + 90 * DAY) {
+        throw new HttpError(400, 'Please pick a time in the future.', 'invalid');
+      }
+      const message = sendChatMessage(me, other, 'plan', JSON.stringify({ at }), { title: me.name, body: 'Planned a video call with you' });
+      return json(201, { message });
+    }
+
+    const cancelPlanMatch = path.match(/^\/api\/plans\/(\d+)\/cancel$/);
+    if (cancelPlanMatch && method === 'POST') {
+      const me = authenticate(request);
+      const message = store.getMessage(Number(cancelPlanMatch[1]));
+      if (!message || message.kind !== 'plan' || (message.from !== me.id && message.to !== me.id)) throw new HttpError(404, 'Not found', 'not-found');
+      store.setMessageBody(message.id, JSON.stringify({ at: message.plan?.at ?? 0, cancelled: true }));
+      const updated = store.getMessage(message.id)!;
+      hub.send(message.from, { type: 'chat.update', message: updated });
+      hub.send(message.to, { type: 'chat.update', message: updated });
+      return json(200, { message: updated });
+    }
+
+    if (path === '/api/plans' && method === 'GET') {
+      const me = authenticate(request);
+      const plans = [];
+      for (const message of store.upcomingPlans(me.id)) {
+        const other = store.getUser(message.from === me.id ? message.to : message.from);
+        if (!other || other.banned || store.isBlockedEither(me.id, other.id)) continue;
+        plans.push({ message, user: toPublicUser(other) });
+      }
+      return json(200, { plans });
+    }
+
+    const voiceFile = path.match(/^\/api\/voice\/([0-9a-f-]{36})$/);
+    if (voiceFile && (method === 'GET' || method === 'HEAD')) {
+      const voice = store.getVoice(voiceFile[1]!);
+      if (!voice) throw new HttpError(404, 'Not found', 'not-found');
+      return new Response(method === 'HEAD' ? null : (voice.data as Uint8Array<ArrayBuffer>), {
+        status: 200,
+        headers: { ...CORS, 'content-type': voice.contentType, 'cache-control': 'private, max-age=31536000, immutable' },
+      });
+    }
+
     const chatMatch = path.match(/^\/api\/chats\/([0-9a-f-]{36})$/);
     if (chatMatch && method === 'GET') {
       const me = authenticate(request);
@@ -357,7 +479,7 @@ export function createApi(store: Store, options: ApiOptions): Api {
 
     if (path === '/api/events' && method === 'GET') {
       const me = authenticate(request);
-      return json(200, { events: store.events(me.id) });
+      return json(200, { events: store.events(me.id).map(withPeople) });
     }
 
     const attendMatch = path.match(/^\/api\/events\/([0-9a-f-]{36})\/attend$/);
@@ -366,7 +488,7 @@ export function createApi(store: Store, options: ApiOptions): Api {
       if (!store.eventExists(attendMatch[1]!)) throw new HttpError(404, 'This event is no longer available.', 'not-found');
       store.setAttending(attendMatch[1]!, me.id, method === 'POST');
       const event = store.events(me.id).find((e) => e.id === attendMatch[1]);
-      return json(200, { event: event ?? null });
+      return json(200, { event: event ? withPeople(event) : null });
     }
 
     const photoMatch = path.match(/^\/api\/users\/([0-9a-f-]{36})\/photo$/);
@@ -462,17 +584,37 @@ export function createApi(store: Store, options: ApiOptions): Api {
       if (!reported || reported.id === user.id) throw new HttpError(404, 'Not found', 'not-found');
       const reason = parseReportReason(body.reason);
       const details = typeof body.details === 'string' ? body.details.slice(0, 500) : '';
-      store.addReport(user.id, reported.id, reason, details);
+      const source = body.source === 'chat' || body.source === 'profile' ? body.source : 'call';
+      const reportId = store.addReport(user.id, reported.id, reason, details, source);
       store.block(user.id, reported.id);
       hub.endCallBetween(user.id, reported.id);
       hub.notifyFriendsChanged(reported.id);
-      log('report received', { reporterId: user.id, reportedId: reported.id, reason });
-      if (store.distinctReporters(reported.id, Date.now() - WEEK) >= autoBanReporters) {
+      log('report received', { reporterId: user.id, reportedId: reported.id, reason, source });
+      let autoRemoved = false;
+      if (!reported.banned && store.distinctReporters(reported.id, Date.now() - WEEK) >= autoBanReporters) {
         store.setBanned(reported.id, true);
         hub.disconnectUser(reported.id, 4003, 'banned');
+        autoRemoved = true;
         log('user auto banned', { userId: reported.id });
       }
+      await moderation.reportCreated(store.getReport(reportId)!, url.origin, autoRemoved);
       return json(201, { ok: true });
+    }
+
+    const modMatch = path.match(/^\/mod\/(\d+)(?:\/(warn|remove|dismiss))?$/);
+    if (modMatch && (method === 'GET' || method === 'POST')) {
+      const reportId = Number(modMatch[1]);
+      const sig = url.searchParams.get('sig');
+      const report = store.getReport(reportId);
+      if (!report || !(await moderation.verify(reportId, sig))) return privateHtml('<p>This link is not valid.</p>', 404);
+      const action = modMatch[2] ?? null;
+      if (method === 'POST' && isModerationAction(action)) {
+        await moderation.act(report, action);
+        const done = action === 'warn' ? 'Done. A warning was sent.' : action === 'remove' ? 'Done. The account was removed.' : 'Done. No action was taken.';
+        return privateHtml(moderation.page(store.getReport(reportId)!, sig!, url.origin, { done }));
+      }
+      const picked = url.searchParams.get('action');
+      return privateHtml(moderation.page(report, sig!, url.origin, { action: isModerationAction(picked) ? picked : null }));
     }
 
     if (path === '/admin/reports' && method === 'GET') {

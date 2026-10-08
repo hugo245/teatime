@@ -6,7 +6,10 @@ import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { Screen } from '../../components/Screen';
+import { Avatar } from '../../components/Avatar';
 import { api, type TeaEvent } from '../../lib/api';
+import { firstName } from '../../lib/format';
+import { scheduleEventReminders, syncEventReminders } from '../../lib/reminders';
 import { toast } from '../../state/ui';
 import { colors, radius, space } from '../../theme';
 
@@ -37,8 +40,10 @@ export default function EventsScreen() {
 
   const load = useCallback(async () => {
     try {
-      setEvents(await api.events());
+      const list = await api.events();
+      setEvents(list);
       setError(null);
+      void syncEventReminders(list);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
     } finally {
@@ -101,8 +106,11 @@ function EventCard({ event, onChange }: { event: TeaEvent; onChange: (event: Tea
     setBusy(true);
     try {
       const updated = await api.attend(event.id, !event.attending);
-      if (updated) onChange(updated);
-      if (updated?.attending) toast(`See you at ${event.title}!`, 'calendar');
+      if (updated) {
+        onChange(updated);
+        void scheduleEventReminders(updated);
+      }
+      if (updated?.attending) toast(`See you at ${event.title}! We will remind you the day before.`, 'calendar');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Something went wrong.', 'alert-circle');
     } finally {
@@ -148,6 +156,18 @@ function EventCard({ event, onChange }: { event: TeaEvent; onChange: (event: Tea
           {goingText(event)}
         </AppText>
       </View>
+      {event.people?.length ? (
+        <View style={styles.people} accessibilityLabel={`Coming: ${event.people.map((p) => firstName(p.name)).join(', ')}`}>
+          {event.people.map((person) => (
+            <View key={person.id} style={styles.person}>
+              <Avatar name={person.name} photoUrl={person.photoUrl} size={44} />
+              <AppText variant="caption" color={colors.textMuted} numberOfLines={1}>
+                {firstName(person.name)}
+              </AppText>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <Button
         label={event.attending ? 'I am coming' : 'I will come'}
         icon={event.attending ? 'checkmark-circle' : 'hand-right'}
@@ -158,7 +178,7 @@ function EventCard({ event, onChange }: { event: TeaEvent; onChange: (event: Tea
       />
       {event.attending ? (
         <AppText variant="caption" color={colors.textMuted} center>
-          Changed your mind? Tap the button again.
+          We will remind you the day before and one hour before. Changed your mind? Tap the button again.
         </AppText>
       ) : null}
     </Card>
@@ -196,5 +216,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingVertical: 28,
+  },
+  people: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  person: {
+    width: 56,
+    alignItems: 'center',
+    gap: 2,
   },
 });

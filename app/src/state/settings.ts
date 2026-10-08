@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { setServerOverride } from '../lib/config';
+import { setDailyReminder } from '../lib/reminders';
 import { getJson, setJson } from '../lib/storage';
 
 export type TextSize = 'normal' | 'large' | 'larger';
@@ -10,7 +11,7 @@ export const TEXT_SCALE: Record<TextSize, number> = {
   larger: 1.25,
 };
 
-type Persisted = { textSize: TextSize; serverOverride: string; verifiedOnly: boolean };
+type Persisted = { textSize: TextSize; serverOverride: string; verifiedOnly: boolean; dailyReminder: boolean; dailyHour: number };
 
 type SettingsState = Persisted & {
   loaded: boolean;
@@ -18,25 +19,41 @@ type SettingsState = Persisted & {
   setTextSize(size: TextSize): void;
   setServer(url: string): void;
   setVerifiedOnly(value: boolean): void;
+  setDailyReminder(enabled: boolean, hour?: number): void;
 };
 
 const KEY = 'settings';
 
 function pick(state: Persisted): Persisted {
-  return { textSize: state.textSize, serverOverride: state.serverOverride, verifiedOnly: state.verifiedOnly };
+  return {
+    textSize: state.textSize,
+    serverOverride: state.serverOverride,
+    verifiedOnly: state.verifiedOnly,
+    dailyReminder: state.dailyReminder,
+    dailyHour: state.dailyHour,
+  };
 }
 
 export const useSettings = create<SettingsState>((set, get) => ({
   textSize: 'normal',
   serverOverride: '',
   verifiedOnly: false,
+  dailyReminder: false,
+  dailyHour: 15,
   loaded: false,
   async load() {
     const saved = await getJson<Partial<Persisted>>(KEY);
     const textSize = saved?.textSize && saved.textSize in TEXT_SCALE ? saved.textSize : 'normal';
     const serverOverride = saved?.serverOverride ?? '';
     setServerOverride(serverOverride);
-    set({ textSize, serverOverride, verifiedOnly: saved?.verifiedOnly === true, loaded: true });
+    set({
+      textSize,
+      serverOverride,
+      verifiedOnly: saved?.verifiedOnly === true,
+      dailyReminder: saved?.dailyReminder === true,
+      dailyHour: typeof saved?.dailyHour === 'number' ? saved.dailyHour : 15,
+      loaded: true,
+    });
   },
   setTextSize(textSize) {
     set({ textSize });
@@ -51,6 +68,12 @@ export const useSettings = create<SettingsState>((set, get) => ({
   setVerifiedOnly(verifiedOnly) {
     set({ verifiedOnly });
     void setJson(KEY, { ...pick(get()), verifiedOnly });
+  },
+  setDailyReminder(dailyReminder, hour) {
+    const dailyHour = hour ?? get().dailyHour;
+    set({ dailyReminder, dailyHour });
+    void setJson(KEY, { ...pick(get()), dailyReminder, dailyHour });
+    void setDailyReminder(dailyReminder, dailyHour);
   },
 }));
 

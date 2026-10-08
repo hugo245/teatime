@@ -14,6 +14,24 @@ export function UpdateCard() {
 
   if (kind === 'none') return null;
 
+  if (kind === 'reinstall') {
+    return (
+      <Card style={styles.card}>
+        <View style={styles.row}>
+          <View style={styles.icon}>
+            <Ionicons name="sparkles" size={24} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <AppText variant="bodyStrong">A new version of TeaTime is ready</AppText>
+            <AppText variant="caption" color={colors.textMuted}>
+              This one has to be installed again on this iPhone, the same way TeaTime was installed the first time. Your profile and friends stay.
+            </AppText>
+          </View>
+        </View>
+      </Card>
+    );
+  }
+
   const busy = phase === 'downloading' || phase === 'installing';
   const percent = Math.round(progress * 100);
 

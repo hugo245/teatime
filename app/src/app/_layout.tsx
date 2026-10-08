@@ -19,7 +19,9 @@ import { Button } from '../components/Button';
 import { StatusBarStyle } from '../components/StatusBarStyle';
 import { isSimulator, postToSimulator } from '../lib/sim';
 import { openPendingNotification, startNotifications } from '../lib/notifications';
+import { refreshAllReminders, setDailyReminder } from '../lib/reminders';
 import { useChats } from '../state/chats';
+import { resetNotices } from '../state/notices';
 import { useFriends } from '../state/friends';
 import { useSession } from '../state/session';
 import { useSettings } from '../state/settings';
@@ -75,6 +77,8 @@ export default function RootLayout() {
       resetCall();
       useFriends.getState().reset();
       useChats.getState().reset();
+      resetNotices();
+      void setDailyReminder(false, 15);
     }
   }, [status]);
 
@@ -93,7 +97,12 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!ready || status !== 'signedIn' || justJoined) return;
-    void startNotifications(true).then(openPendingNotification);
+    void startNotifications(true).then(() => {
+      openPendingNotification();
+      const { dailyReminder, dailyHour } = useSettings.getState();
+      void setDailyReminder(dailyReminder, dailyHour);
+      void refreshAllReminders(useSession.getState().user?.id);
+    });
   }, [ready, status, justJoined]);
 
   useEffect(() => {

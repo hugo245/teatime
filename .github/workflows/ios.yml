@@ -81,6 +81,20 @@ jobs:
           zip -qry TeaTime.ipa Payload
           ls -lh TeaTime.ipa
 
+      - name: Write version info
+        run: |
+          npx expo config --type public --json > "$RUNNER_TEMP/config.json"
+          node -e '
+            const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            const info = {
+              build: Number(process.env.TEATIME_BUILD_NUMBER),
+              runtimeVersion: config.runtimeVersion,
+              url: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/ios-latest/TeaTime.ipa`,
+            };
+            require("fs").writeFileSync(process.argv[2], JSON.stringify(info));
+          ' "$RUNNER_TEMP/config.json" "$RUNNER_TEMP/ipa/version.json"
+          cat "$RUNNER_TEMP/ipa/version.json"
+
       - uses: actions/upload-artifact@v4
         with:
           name: TeaTime-ipa
@@ -92,7 +106,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete ios-latest --yes --cleanup-tag || true
-          gh release create ios-latest "$RUNNER_TEMP/ipa/TeaTime.ipa" \
+          gh release create ios-latest "$RUNNER_TEMP/ipa/TeaTime.ipa" "$RUNNER_TEMP/ipa/version.json" \
             --target "$GITHUB_SHA" \
             --title "TeaTime for iPhone (build $TEATIME_BUILD_NUMBER)" \
             --notes "Unsigned build from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Install it with Sideloadly or AltStore, see the README for the steps."

@@ -176,7 +176,7 @@ export default function FriendScreen() {
         visible={reporting}
         onClose={() => setReporting(false)}
         onReport={async (reason) => {
-          await api.report(friend.id, reason);
+          await api.report(friend.id, reason, 'profile');
           useFriends.setState((s) => ({ friends: s.friends.filter((f) => f.id !== friend.id) }));
           toast(`Thank you. ${name} has been reported and blocked.`, 'shield-checkmark');
           router.back();

@@ -20,6 +20,9 @@ type Env = {
   UPDATES_URL?: string;
   AGE_TEST_SKIP?: string;
   FIREBASE_SERVICE_ACCOUNT?: string;
+  DISCORD_WEBHOOK_URL?: string;
+  TURN_KEY_ID?: string;
+  TURN_KEY_API_TOKEN?: string;
 };
 
 function iceServers(env: Env): IceServer[] {
@@ -59,6 +62,8 @@ export class TeaTimeHub extends DurableObject<Env> {
       updates: { releasesUrl: env.UPDATES_URL },
       ageTestSkip: env.AGE_TEST_SKIP !== '0',
       firebaseServiceAccount: env.FIREBASE_SERVICE_ACCOUNT,
+      discordWebhookUrl: env.DISCORD_WEBHOOK_URL,
+      turn: { keyId: env.TURN_KEY_ID, apiToken: env.TURN_KEY_API_TOKEN },
       log: (message, extra) => console.log(JSON.stringify({ message, ...extra })),
     });
     setInterval(() => this.api.hub.sweep(70_000), 15_000);

@@ -41,6 +41,8 @@ const server = createTeaTimeServer({
   updates: { releasesUrl: process.env.UPDATES_URL },
   ageTestSkip: process.env.AGE_TEST_SKIP !== '0',
   firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT,
+  discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL,
+  turn: { keyId: process.env.TURN_KEY_ID, apiToken: process.env.TURN_KEY_API_TOKEN },
   log,
 });
 

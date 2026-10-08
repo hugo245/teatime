@@ -31,6 +31,8 @@ export default function ProfileScreen() {
   const user = useSession((s) => s.user);
   const showAge = useSession((s) => s.showAge);
   const textSize = useSettings((s) => s.textSize);
+  const dailyReminder = useSettings((s) => s.dailyReminder);
+  const dailyHour = useSettings((s) => s.dailyHour);
   const setTextSize = useSettings((s) => s.setTextSize);
   const [photoSheet, setPhotoSheet] = useState(false);
   const [serverSheet, setServerSheet] = useState(false);
@@ -146,6 +148,47 @@ export default function ProfileScreen() {
       </Card>
 
       <AppText variant="heading" style={styles.sectionTitle}>
+        Tea time reminder
+      </AppText>
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <ListRow
+          icon="cafe-outline"
+          label="Remind me every day"
+          detail={dailyReminder ? `Every day at ${REMINDER_HOURS.find((h) => h.hour === dailyHour)?.label ?? `${dailyHour}:00`}` : 'A friendly nudge to have a chat'}
+          last={!dailyReminder}
+          right={
+            <Switch
+              value={dailyReminder}
+              onValueChange={(value) => useSettings.getState().setDailyReminder(value)}
+              trackColor={{ true: colors.primary, false: colors.border }}
+              thumbColor={colors.white}
+              accessibilityLabel="Remind me every day"
+            />
+          }
+        />
+        {dailyReminder ? (
+          <View style={styles.reminderTimes} accessibilityRole="radiogroup">
+            {REMINDER_HOURS.map((option) => {
+              const selected = dailyHour === option.hour;
+              return (
+                <Pressable
+                  key={option.hour}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  onPress={() => useSettings.getState().setDailyReminder(true, option.hour)}
+                  style={[styles.reminderTime, selected && styles.segmentSelected]}
+                >
+                  <AppText variant="label" color={selected ? colors.white : colors.text}>
+                    {option.label}
+                  </AppText>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+      </Card>
+
+      <AppText variant="heading" style={styles.sectionTitle}>
         Text size
       </AppText>
       <View style={styles.segment} accessibilityRole="radiogroup">
@@ -214,7 +257,29 @@ export default function ProfileScreen() {
   );
 }
 
+function hourText(hour: number) {
+  const date = new Date();
+  date.setHours(hour, 0, 0, 0);
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+const REMINDER_HOURS = [10, 13, 15, 17, 19].map((hour) => ({ hour, label: hourText(hour) }));
+
 const styles = StyleSheet.create({
+  reminderTimes: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: 16,
+    paddingTop: 4,
+  },
+  reminderTime: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
   profileCard: {
     alignItems: 'center',
     paddingTop: 28,

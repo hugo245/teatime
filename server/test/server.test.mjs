@@ -566,6 +566,181 @@ describe('chat, offline calls and events', () => {
   });
 });
 
+describe('voice messages and planned calls', () => {
+  async function friendsPair(nameA, nameB) {
+    const a = await register(nameA);
+    const b = await register(nameB);
+    const sa = await connect(a.token);
+    const sb = await connect(b.token);
+    sa.send({ type: 'meet.start' });
+    await sa.next('meet.searching');
+    sb.send({ type: 'meet.start' });
+    const start = await sa.next('call.start');
+    await sb.next('call.start');
+    sa.send({ type: 'call.hangup', callId: start.callId });
+    await sb.next('call.ended');
+    await api(`/api/friends/${b.user.id}`, { token: a.token, method: 'POST' });
+    await api(`/api/friends/${a.user.id}`, { token: b.token, method: 'POST' });
+    return { a, b, sa, sb };
+  }
+
+  test('sends and plays a voice message', async () => {
+    const { a, b, sa, sb } = await friendsPair('Speaker', 'Listener');
+    const audio = Buffer.alloc(4000, 7).toString('base64');
+    const sent = await api(`/api/chats/${b.user.id}/voice`, { token: a.token, method: 'POST', body: { data: audio, seconds: 5, type: 'audio/mp4' } });
+    assert.equal(sent.status, 201, JSON.stringify(sent.body));
+    assert.equal(sent.body.message.kind, 'voice');
+    assert.equal(sent.body.message.voice.seconds, 5);
+    const live = await sb.next('chat.message');
+    assert.equal(live.message.voice.url, sent.body.message.voice.url);
+    const file = await fetch(base + sent.body.message.voice.url);
+    assert.equal(file.status, 200);
+    assert.equal(file.headers.get('content-type'), 'audio/mp4');
+    assert.equal((await file.arrayBuffer()).byteLength, 4000);
+    const bad = await api(`/api/chats/${b.user.id}/voice`, { token: a.token, method: 'POST', body: { data: audio, seconds: 5, type: 'text/html' } });
+    assert.equal(bad.status, 400);
+    await sa.close();
+    await sb.close();
+  });
+
+  test('plans a call and cancels it', async () => {
+    const { a, b, sa, sb } = await friendsPair('Planner', 'Guest');
+    const at = Date.now() + 3 * 60 * 60 * 1000;
+    const plan = await api(`/api/chats/${b.user.id}/plan`, { token: a.token, method: 'POST', body: { at } });
+    assert.equal(plan.status, 201);
+    assert.equal(plan.body.message.plan.at, at);
+    await sb.next('chat.message');
+    const upcoming = await api('/api/plans', { token: b.token });
+    assert.equal(upcoming.body.plans.length, 1);
+    assert.equal(upcoming.body.plans[0].user.id, a.user.id);
+    const past = await api(`/api/chats/${b.user.id}/plan`, { token: a.token, method: 'POST', body: { at: Date.now() - 1000 } });
+    assert.equal(past.status, 400);
+    const cancel = await api(`/api/plans/${plan.body.message.id}/cancel`, { token: b.token, method: 'POST' });
+    assert.equal(cancel.body.message.plan.cancelled, true);
+    const update = await sa.next('chat.update');
+    assert.equal(update.message.plan.cancelled, true);
+    assert.equal((await api('/api/plans', { token: b.token })).body.plans.length, 0);
+    await sa.close();
+    await sb.close();
+  });
+
+  test('events list the people who are coming', async () => {
+    const { token, user } = await register('Joiner');
+    const list = await api('/api/events', { token });
+    const event = list.body.events.find((e) => e.title === 'Test');
+    const going = await api(`/api/events/${event.id}/attend`, { token, method: 'POST' });
+    assert.ok(going.body.event.people.some((p) => p.id === user.id && p.name === 'Joiner'));
+    await api(`/api/events/${event.id}/attend`, { token, method: 'DELETE' });
+  });
+});
+
+test('reports go to Discord and moderators can warn or remove', { skip: !!process.env.BASE_URL }, async () => {
+  const { createServer } = await import('node:http');
+  const posts = [];
+  const discord = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      posts.push({ url: req.url, body: JSON.parse(body) });
+      res.writeHead(204);
+      res.end();
+    });
+  });
+  await new Promise((resolve) => discord.listen(0, '127.0.0.1', resolve));
+  const own = createTeaTimeServer({
+    databaseFile: ':memory:',
+    iceServers: [],
+    supportEmail: 'help@example.org',
+    discordWebhookUrl: `http://127.0.0.1:${discord.address().port}/api/webhooks/1/abc`,
+    hub: { matchIntervalMs: 100, rematchWaitMs: 300 },
+  });
+  await new Promise((resolve) => own.http.listen(0, '127.0.0.1', resolve));
+  const ownBase = `http://127.0.0.1:${own.http.address().port}`;
+  const call = async (path, { token, method = 'GET', body } = {}) => {
+    const res = await fetch(ownBase + path, {
+      method,
+      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    return { status: res.status, text, body: text.startsWith('{') ? JSON.parse(text) : null };
+  };
+  const socketFor = (token) =>
+    new Promise((resolve) => {
+      const ws = new WebSocket(ownBase.replace('http', 'ws') + '/ws');
+      const inbox = [];
+      ws.onmessage = (e) => inbox.push(JSON.parse(e.data));
+      ws.onclose = (e) => inbox.push({ type: 'closed', code: e.code });
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'auth', token }));
+        setTimeout(() => resolve({ ws, inbox }), 200);
+      };
+    });
+  const until = async (inbox, type) => {
+    for (let i = 0; i < 40; i++) {
+      const found = inbox.find((m) => m.type === type);
+      if (found) return found;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    throw new Error(`no ${type}`);
+  };
+  try {
+    const reg = async (name) => (await call('/api/register', { method: 'POST', body: { name } })).body;
+    const rose = await reg('Rose Reporter');
+    const tom = await reg('Tom Trouble');
+    const sr = await socketFor(rose.token);
+    const st = await socketFor(tom.token);
+    sr.ws.send(JSON.stringify({ type: 'meet.start' }));
+    await new Promise((r) => setTimeout(r, 150));
+    st.ws.send(JSON.stringify({ type: 'meet.start' }));
+    await until(sr.inbox, 'call.start');
+
+    const report = await call('/api/reports', { token: rose.token, method: 'POST', body: { userId: tom.user.id, reason: 'money', source: 'call' } });
+    assert.equal(report.status, 201);
+    assert.equal(posts.length, 1);
+    assert.match(posts[0].url, /with_components=true/);
+    const embed = posts[0].body.embeds[0];
+    assert.match(embed.title, /Tom Trouble/);
+    assert.ok(embed.fields.some((f) => f.value === 'Asked for money or bank details'));
+    const buttons = posts[0].body.components[0].components;
+    assert.deepEqual(buttons.map((b) => b.label), ['Send a warning', 'Remove account', 'No action', 'Open report']);
+
+    const pageUrl = new URL(embed.url);
+    const page = await call(pageUrl.pathname + pageUrl.search);
+    assert.equal(page.status, 200);
+    assert.match(page.text, /Report about Tom Trouble/);
+    const forged = await call(pageUrl.pathname + '?sig=0000');
+    assert.equal(forged.status, 404);
+
+    const reportId = pageUrl.pathname.split('/').pop();
+    const warned = await call(`/mod/${reportId}/warn${pageUrl.search}`, { method: 'POST' });
+    assert.match(warned.text, /A warning was sent/);
+    const warning = await until(st.inbox, 'notice');
+    assert.equal(warning.notice.kind, 'warning');
+    const thanks = await until(sr.inbox, 'notice');
+    assert.match(thanks.notice.body, /sent them a warning/);
+    assert.ok(posts.some((p) => /A warning was sent/.test(p.body.content ?? '')));
+
+    const later = await socketFor(tom.token);
+    const hello = await until(later.inbox, 'hello');
+    assert.equal(hello.notices.length, 1);
+    await call('/api/notices/seen', { token: tom.token, method: 'POST', body: { ids: [hello.notices[0].id] } });
+    const again = await socketFor(tom.token);
+    assert.equal((await until(again.inbox, 'hello')).notices.length, 0);
+
+    await call(`/mod/${reportId}/remove${pageUrl.search}`, { method: 'POST' });
+    const closed = await until(again.inbox, 'closed');
+    assert.equal(closed.code, 4003);
+    const me = await call('/api/me', { token: tom.token });
+    assert.equal(me.status, 403);
+    for (const s of [sr, st, later, again]) s.ws.close();
+    await new Promise((r) => setTimeout(r, 300));
+  } finally {
+    await own.close();
+    await new Promise((resolve) => discord.close(resolve));
+  }
+});
+
 test('serves config and health', async () => {
   const config = await api('/api/config');
   assert.equal(config.body.iceServers[0].urls, 'stun:stun.example.org:3478');

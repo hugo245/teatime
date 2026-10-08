@@ -1,33 +1,26 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useAudioRecorder, useAudioRecorderState } from 'expo-audio';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { callFriend, useCall } from '../../call/engine';
 import { AppText } from '../../components/AppText';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
-import type { ChatMessage, PublicUser } from '../../lib/api';
+import { ChatMenu, MissedCall, PlanCard, PlanSheet, TextBubble, VoiceBubble } from '../../components/ChatParts';
+import { ReportSheet } from '../../call/ReportSheet';
+import { api, type PublicUser } from '../../lib/api';
+import { finishRecording, formatSeconds, MAX_VOICE_SECONDS, prepareRecording, readRecording, useReadAloud, useVoicePlayer, VOICE_OPTIONS } from '../../lib/voice';
 import { firstName, timeAgo } from '../../lib/format';
 import { useChats } from '../../state/chats';
 import { useFriends } from '../../state/friends';
 import { useSession } from '../../state/session';
 import { useTextScale } from '../../state/settings';
-import { toast } from '../../state/ui';
+import { confirm, toast } from '../../state/ui';
 import { colors, fonts, radius, space } from '../../theme';
 
 const QUICK_REPLIES = ['Hello!', 'How are you?', 'Shall we have a video call?', 'Talk to you soon!', 'Thank you for the chat!'];
-
-function timeLabel(timestamp: number) {
-  const date = new Date(timestamp);
-  const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-  if (date.toDateString() === today.toDateString()) return time;
-  if (date.toDateString() === yesterday.toDateString()) return `Yesterday ${time}`;
-  return `${date.toLocaleDateString([], { day: 'numeric', month: 'long' })} ${time}`;
-}
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -41,6 +34,13 @@ export default function ChatScreen() {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [planning, setPlanning] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const recorder = useAudioRecorder(VOICE_OPTIONS);
+  const recorderState = useAudioRecorderState(recorder, 250);
+  const recordStart = useRef(0);
 
   useEffect(() => {
     if (!id) return;
@@ -49,8 +49,18 @@ export default function ChatScreen() {
       .getState()
       .open(id)
       .catch(() => setFailed(true));
-    return () => useChats.getState().close(id);
+    return () => {
+      useChats.getState().close(id);
+      useVoicePlayer.getState().stop();
+      useReadAloud.getState().stop();
+    };
   }, [id]);
+
+  const recordedSeconds = recording ? Math.floor((recorderState.durationMillis || 0) / 1000) : 0;
+
+  useEffect(() => {
+    if (recording && recordedSeconds >= MAX_VOICE_SECONDS) void stopAndSend();
+  }, [recording, recordedSeconds]);
 
   const user: PublicUser | null = friend ?? thread?.user ?? summary?.user ?? null;
   const name = user ? firstName(user.name) : '';
@@ -70,6 +80,84 @@ export default function ChatScreen() {
       toast(e instanceof Error ? e.message : 'Your message was not sent. Please try again.', 'alert-circle');
     } finally {
       setSending(false);
+    }
+  };
+
+  const startRecording = async () => {
+    if (!user || sending) return;
+    useVoicePlayer.getState().stop();
+    useReadAloud.getState().stop();
+    try {
+      if (!(await prepareRecording())) {
+        toast('Please allow TeaTime to use your microphone in Settings.', 'mic-off');
+        return;
+      }
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      recordStart.current = Date.now();
+      setRecording(true);
+    } catch {
+      toast('We could not start the recording. Please try again.', 'alert-circle');
+      await finishRecording();
+    }
+  };
+
+  const cancelRecording = async () => {
+    setRecording(false);
+    try {
+      await recorder.stop();
+    } catch {
+      setRecording(false);
+    }
+    await finishRecording();
+  };
+
+  async function stopAndSend() {
+    if (!user || !recording) return;
+    setRecording(false);
+    const seconds = Math.max(1, Math.round((Date.now() - recordStart.current) / 1000));
+    try {
+      await recorder.stop();
+      await finishRecording();
+      if (seconds < 1 || !recorder.uri) return;
+      setSending(true);
+      const file = await readRecording(recorder.uri);
+      await useChats.getState().sendVoice(user, file.data, Math.min(seconds, MAX_VOICE_SECONDS), file.type);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Your voice message was not sent. Please try again.', 'alert-circle');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const report = async (reason: Parameters<typeof api.report>[1]) => {
+    if (!user) return;
+    await api.report(user.id, reason, 'chat');
+    toast('Thank you. Our team will look at your report.', 'shield-checkmark');
+    void useFriends.getState().refresh();
+    void useChats.getState().refresh();
+    if (router.canGoBack()) router.back();
+    else router.replace('/chats');
+  };
+
+  const block = async () => {
+    setMenu(false);
+    if (!user) return;
+    const ok = await confirm({
+      title: `Block ${name}?`,
+      message: `${name} will not be able to call you or send you messages. They are not told that you blocked them.`,
+      confirmLabel: `Block ${name}`,
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await useFriends.getState().block(user);
+      toast(`${name} is blocked`, 'hand-left');
+      void useChats.getState().refresh();
+      if (router.canGoBack()) router.back();
+      else router.replace('/chats');
+    } catch {
+      toast('Something went wrong. Please try again.', 'alert-circle');
     }
   };
 
@@ -127,6 +215,17 @@ export default function ChatScreen() {
             <Ionicons name="videocam" size={26} color={colors.white} />
           </Pressable>
         ) : null}
+        {user ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+            onPress={() => setMenu(true)}
+            hitSlop={8}
+            style={({ pressed }) => [styles.moreButton, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="ellipsis-vertical" size={26} color={colors.text} />
+          </Pressable>
+        ) : null}
       </View>
 
       {!thread?.loaded ? (
@@ -168,20 +267,52 @@ export default function ChatScreen() {
               </View>
             ) : null
           }
-          renderItem={({ item }) =>
-            item.kind === 'missed-call' ? (
-              <MissedCall message={item} mine={item.from === me?.id} name={name} onCall={isFriend ? call : undefined} />
-            ) : (
-              <Bubble message={item} mine={item.from === me?.id} seen={item.id === lastSeenMine?.id && !!item.readAt} />
-            )
-          }
+          renderItem={({ item }) => {
+            const mine = item.from === me?.id;
+            if (item.kind === 'missed-call') return <MissedCall message={item} mine={mine} name={name} onCall={isFriend ? call : undefined} />;
+            if (item.kind === 'voice') return <VoiceBubble message={item} mine={mine} />;
+            if (item.kind === 'plan') {
+              return (
+                <PlanCard
+                  message={item}
+                  mine={mine}
+                  name={name}
+                  onCall={isFriend ? call : undefined}
+                  onCancel={() => void useChats.getState().cancelPlan(item).catch(() => toast('Something went wrong. Please try again.', 'alert-circle'))}
+                />
+              );
+            }
+            return <TextBubble message={item} mine={mine} seen={item.id === lastSeenMine?.id && !!item.readAt} onReport={() => setReporting(true)} />;
+          }}
         />
       )}
 
-      {isFriend ? (
+      {isFriend && recording ? (
+        <View style={[styles.composer, styles.recordingBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <View style={styles.recordingInfo} accessibilityLiveRegion="polite">
+            <View style={styles.recordDot} />
+            <AppText variant="heading">Recording {formatSeconds(recordedSeconds)}</AppText>
+          </View>
+          <View style={styles.recordingButtons}>
+            <Button label="Cancel" icon="trash" variant="secondary" size="medium" onPress={() => void cancelRecording()} style={{ flex: 1 }} />
+            <Button label="Send" icon="send" size="medium" onPress={() => void stopAndSend()} style={{ flex: 1 }} />
+          </View>
+        </View>
+      ) : isFriend ? (
         <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           {!text ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quick} keyboardShouldPersistTaps="handled">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Plan a video call with ${name}`}
+                onPress={() => setPlanning(true)}
+                style={({ pressed }) => [styles.chip, styles.planChip, pressed && { opacity: 0.8 }]}
+              >
+                <Ionicons name="calendar" size={18} color={colors.white} />
+                <AppText variant="label" color={colors.white}>
+                  Plan a call
+                </AppText>
+              </Pressable>
               {QUICK_REPLIES.map((reply) => (
                 <Pressable
                   key={reply}
@@ -209,15 +340,26 @@ export default function ChatScreen() {
               accessibilityLabel="Message"
               style={[styles.input, { fontSize: Math.round(20 * scale), lineHeight: Math.round(26 * scale) }]}
             />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Send message"
-              disabled={!text.trim() || sending}
-              onPress={() => void send(text)}
-              style={({ pressed }) => [styles.send, (!text.trim() || sending) && styles.sendIdle, pressed && { opacity: 0.8 }]}
-            >
-              {sending ? <ActivityIndicator color={colors.white} /> : <Ionicons name="send" size={26} color={colors.white} />}
-            </Pressable>
+            {text.trim() || sending ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Send message"
+                disabled={sending}
+                onPress={() => void send(text)}
+                style={({ pressed }) => [styles.send, pressed && { opacity: 0.8 }]}
+              >
+                {sending ? <ActivityIndicator color={colors.white} /> : <Ionicons name="send" size={26} color={colors.white} />}
+              </Pressable>
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Record a voice message"
+                onPress={() => void startRecording()}
+                style={({ pressed }) => [styles.send, styles.mic, pressed && { opacity: 0.8 }]}
+              >
+                <Ionicons name="mic" size={28} color={colors.white} />
+              </Pressable>
+            )}
           </View>
         </View>
       ) : thread?.loaded ? (
@@ -227,40 +369,36 @@ export default function ChatScreen() {
           </AppText>
         </View>
       ) : null}
+
+      <ChatMenu
+        visible={menu}
+        name={name}
+        onClose={() => setMenu(false)}
+        onPlan={
+          isFriend
+            ? () => {
+                setMenu(false);
+                setPlanning(true);
+              }
+            : undefined
+        }
+        onReport={() => {
+          setMenu(false);
+          setReporting(true);
+        }}
+        onBlock={() => void block()}
+      />
+      {user ? (
+        <PlanSheet visible={planning} name={name} onClose={() => setPlanning(false)} onPlan={(at) => useChats.getState().planCall(user, at)} />
+      ) : null}
+      <ReportSheet
+        name={name}
+        visible={reporting}
+        onClose={() => setReporting(false)}
+        onReport={report}
+        description={`What happened? The last messages in this chat are sent to the TeaTime team with your report, and ${name} will be blocked.`}
+      />
     </KeyboardAvoidingView>
-  );
-}
-
-function Bubble({ message, mine, seen }: { message: ChatMessage; mine: boolean; seen: boolean }) {
-  return (
-    <View style={[styles.bubbleRow, mine ? styles.rowMine : styles.rowTheirs]}>
-      <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
-        <AppText variant="body" color={mine ? colors.white : colors.text} selectable>
-          {message.text}
-        </AppText>
-      </View>
-      <AppText variant="caption" color={colors.textFaint} style={{ marginHorizontal: 6 }}>
-        {timeLabel(message.createdAt)}
-        {seen ? '  Seen' : ''}
-      </AppText>
-    </View>
-  );
-}
-
-function MissedCall({ message, mine, name, onCall }: { message: ChatMessage; mine: boolean; name: string; onCall?: () => void }) {
-  return (
-    <View style={styles.missed}>
-      <View style={styles.missedPill}>
-        <Ionicons name={mine ? 'call-outline' : 'call'} size={20} color={mine ? colors.textMuted : colors.danger} />
-        <AppText variant="label" color={mine ? colors.textMuted : colors.danger}>
-          {mine ? `You called ${name}` : `Missed call from ${name}`}
-        </AppText>
-      </View>
-      <AppText variant="caption" color={colors.textFaint}>
-        {timeLabel(message.createdAt)}
-      </AppText>
-      {!mine && onCall ? <Button label="Call back" icon="videocam" size="small" variant="soft" onPress={onCall} /> : null}
-    </View>
   );
 }
 
@@ -289,6 +427,42 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+  },
+  moreButton: {
+    width: 40,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  planChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  mic: {
+    backgroundColor: colors.accent,
+  },
+  recordingBar: {
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  recordingInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  recordDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: colors.danger,
+  },
+  recordingButtons: {
+    flexDirection: 'row',
     gap: 12,
   },
   callButton: {

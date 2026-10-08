@@ -78,11 +78,15 @@ export type ChatMessage = {
   id: number;
   from: string;
   to: string;
-  kind: 'text' | 'missed-call';
+  kind: 'text' | 'missed-call' | 'voice' | 'plan';
   text: string;
   createdAt: number;
   readAt: number | null;
+  voice?: { url: string; seconds: number };
+  plan?: { at: number; cancelled: boolean };
 };
+
+export type Notice = { id: number; kind: string; title: string; body: string; createdAt: number };
 
 export type ChatSummary = {
   user: PublicUser;
@@ -101,6 +105,7 @@ export type TeaEvent = {
   endsAt: number | null;
   going: number;
   attending: boolean;
+  people: { id: string; name: string; photoUrl: string | null }[];
 };
 
 export type ReportReason = 'rude' | 'inappropriate' | 'money' | 'fake' | 'other';
@@ -205,5 +210,15 @@ export const api = {
   events: () => request<{ events: TeaEvent[] }>('/api/events').then((d) => d.events ?? []),
   attend: (eventId: string, attending: boolean) =>
     request<{ event: TeaEvent | null }>(`/api/events/${eventId}/attend`, { method: attending ? 'POST' : 'DELETE' }).then((d) => d.event),
-  report: (userId: string, reason: ReportReason) => request<{ ok: true }>('/api/reports', { method: 'POST', body: { userId, reason } }),
+  report: (userId: string, reason: ReportReason, source: 'call' | 'chat' | 'profile' = 'call') =>
+    request<{ ok: true }>('/api/reports', { method: 'POST', body: { userId, reason, source } }),
+  sendVoice: (userId: string, data: string, seconds: number, type: string) =>
+    request<{ message: ChatMessage }>(`/api/chats/${userId}/voice`, { method: 'POST', body: { data, seconds, type } }),
+  planCall: (userId: string, at: number) => request<{ message: ChatMessage }>(`/api/chats/${userId}/plan`, { method: 'POST', body: { at } }),
+  cancelPlan: (messageId: number) => request<{ message: ChatMessage }>(`/api/plans/${messageId}/cancel`, { method: 'POST' }),
+  plans: () =>
+    request<{ plans: { message: ChatMessage; user: PublicUser }[] }>('/api/plans').then((d) =>
+      (d.plans ?? []).map((p) => ({ ...p, user: normalizeUser(p.user) })),
+    ),
+  seenNotices: (ids: number[]) => request<{ ok: true }>('/api/notices/seen', { method: 'POST', body: { ids } }),
 };

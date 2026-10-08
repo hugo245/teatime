@@ -7,6 +7,7 @@ import { createApi, type IceServer } from './api.js';
 import type { Hub, HubOptions } from './hub.js';
 import { NodeSqlDriver } from './nodeDb.js';
 import { Store } from './store.js';
+import type { TurnOptions } from './turn.js';
 import type { UpdatesOptions } from './updates.js';
 
 export type { IceServer } from './api.js';
@@ -31,6 +32,8 @@ export type ServerOptions = {
   updates?: UpdatesOptions;
   ageTestSkip?: boolean;
   firebaseServiceAccount?: string;
+  discordWebhookUrl?: string;
+  turn?: TurnOptions;
 };
 
 export type TeaTimeServer = {
@@ -81,7 +84,7 @@ export function createTeaTimeServer(options: ServerOptions): TeaTimeServer {
     let size = 0;
     for await (const chunk of req) {
       size += (chunk as Buffer).length;
-      if (size > 1.5 * 1024 * 1024) throw new Error('too-large');
+      if (size > 2.5 * 1024 * 1024) throw new Error('too-large');
       chunks.push(chunk as Buffer);
     }
     const headers = new Headers();

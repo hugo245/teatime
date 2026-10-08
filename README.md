@@ -23,7 +23,13 @@ During a call there are four large buttons with labels: Mute, Camera, Add friend
 * **Chats.** Send messages to your friends from the new Chats tab. Big bubbles, big text and one tap replies like "How are you?". Unread messages show a number on the tab.
 * **Call friends who are not in the app.** TeaTime rings their phone for a minute. If they open TeaTime in time, the call comes straight in. If not, they see "Missed call from Rose" in the chat with a Call back button.
 * **Notifications.** New messages and calls show up as phone notifications. Tapping one opens the right chat.
-* **Events.** The Events tab lists get togethers for TeaTime members. Tap "I will come" so others know you are joining.
+* **Events.** The Events tab lists get togethers for TeaTime members. Tap "I will come" to see who else is coming and get a reminder the day before and an hour before.
+* **Voice messages.** Tap the microphone in a chat, talk, and tap Send. No typing needed.
+* **Read aloud.** Every message from a friend has a Read aloud button.
+* **Scam warning.** When a message mentions money, bank details or gift cards, a "Be careful" note shows under it with a button to report it.
+* **Plan a call.** Pick a day and a time in a chat. Both phones get a reminder 15 minutes before and when it is time.
+* **Daily tea time reminder.** Turn it on in Profile and pick a time for a friendly nudge each day.
+* **Report and block in chats.** Tap the three dots at the top of a chat.
 * **Only meet verified people.** People with the badge can switch on "Only meet people with Verified Age" on the Meet tab.
 * **Same language matching.** You pick the languages you speak, and TeaTime only matches people who share one.
 * **Something to talk about.** During a call, tap Topic idea and both of you see the same friendly question, such as "What was your very first job?"
@@ -204,11 +210,25 @@ docker run -p 8080:8080 -v teatime-data:/data \
 | `ICE_SERVERS` | Full WebRTC ICE server list as JSON, if you prefer to set it directly |
 | `FIREBASE_SERVICE_ACCOUNT` | Firebase service account key as JSON, for Android notifications when the app is closed |
 | `AGE_TEST_SKIP` | Set to `0` to turn off the hidden testing shortcut in the age check |
+| `DISCORD_WEBHOOK_URL` | Discord webhook link for reports |
+| `TURN_KEY_ID`, `TURN_KEY_API_TOKEN` | Cloudflare TURN key, so calls work on mobile data too |
 | `UPDATES_URL` | Where app updates are downloaded from, default `https://github.com/hugo245/teatime/releases/download` |
 
 ### TURN relay for mobile networks
 
-Video goes straight from one phone to the other. On some mobile and office networks a direct path is impossible and the call needs a relay, called a TURN server. Without one, a small share of calls will not connect. Use a TURN provider such as Cloudflare Realtime, Twilio or Metered, or run your own [coturn](https://github.com/coturn/coturn), and set the three `TURN_` variables. The server hands these to the app before every call.
+Video goes straight from one phone to the other. On mobile data and some home routers a direct path is impossible and the call needs a relay, called a TURN server. Without one, some calls stay stuck on "Connecting".
+
+The easiest option is Cloudflare's own TURN service, which has a free allowance of 1,000 GB a month:
+
+1. In the Cloudflare dashboard open **Realtime**, then **TURN Server**, and click **Create**.
+2. Copy the **Turn Token ID** and the **API Token**.
+3. In the `server` folder run these two commands and paste each value when asked:
+   ```bash
+   npx wrangler secret put TURN_KEY_ID
+   npx wrangler secret put TURN_KEY_API_TOKEN
+   ```
+
+The server then creates fresh relay passwords every day and gives them to the app before each call. Other providers such as Metered, Twilio or your own [coturn](https://github.com/coturn/coturn) work too through the three `TURN_URLS`, `TURN_USERNAME` and `TURN_CREDENTIAL` settings.
 
 ## Safety and moderation
 
@@ -221,6 +241,24 @@ Video goes straight from one phone to the other. On some mobile and office netwo
 * Profile text is checked for rude words, links, email addresses and phone numbers, which protects against scammers.
 * Friend requests are only possible between people who have actually talked.
 * Calls are never recorded. Video and sound are encrypted and travel directly between the phones whenever possible.
+
+### Reports in Discord
+
+Every report is posted to a Discord channel with who reported who, the reason and the last messages between them. Under each report are buttons:
+
+* **Send a warning.** The person sees a message from the TeaTime team in their app the next time they open it.
+* **Remove account.** The person is signed out for good and their phone cannot sign up again. They see a message that their account was removed.
+* **No action.** Nothing happens to the person. They stay blocked for the one who reported them.
+
+Each button opens a page on your server where you confirm the choice, so nothing happens by accident. The person who reported always gets a short update in their app, for example "We looked at your report about Tom and sent them a warning."
+
+To turn it on, make a webhook in Discord (**Server Settings, Integrations, Webhooks, New Webhook**, pick the channel, **Copy Webhook URL**). Then in the `server` folder run:
+
+```bash
+npx wrangler secret put DISCORD_WEBHOOK_URL
+```
+
+and paste the link. Keep that link private. Anyone who has it can post in your channel.
 
 Moderation endpoints, using your `ADMIN_TOKEN`:
 

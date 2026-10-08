@@ -7,7 +7,7 @@ import { create } from 'zustand';
 import { api } from '../lib/api';
 import { isSimulator } from '../lib/sim';
 
-type Kind = 'none' | 'quick' | 'install';
+type Kind = 'none' | 'quick' | 'install' | 'reinstall';
 type Phase = 'idle' | 'downloading' | 'installing' | 'failed';
 
 type UpdatesState = {
@@ -31,8 +31,8 @@ export const canUpdate = Platform.OS !== 'web' && !isSimulator && Updates.isEnab
 export const buildNumber = Number(Application.nativeBuildVersion ?? 0) || 0;
 
 async function newerInstall(): Promise<string | null> {
-  if (Platform.OS !== 'android') return null;
-  const latest = await api.latestApp('android').catch(() => null);
+  if (Platform.OS !== 'android' && Platform.OS !== 'ios') return null;
+  const latest = await api.latestApp(Platform.OS).catch(() => null);
   if (!latest || !latest.url) return null;
   if (latest.runtimeVersion === Updates.runtimeVersion) return null;
   if (latest.build <= buildNumber) return null;
@@ -52,7 +52,7 @@ export const useUpdates = create<UpdatesState>((set, get) => ({
     try {
       const apkUrl = await newerInstall();
       if (apkUrl) {
-        set({ kind: 'install', apkUrl });
+        set({ kind: Platform.OS === 'ios' ? 'reinstall' : 'install', apkUrl });
         return;
       }
       const result = await Updates.checkForUpdateAsync();

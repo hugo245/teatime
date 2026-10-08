@@ -16,8 +16,12 @@ export function appIsActive() {
 }
 
 function openFrom(data: NotificationData) {
-  if ((data.type === 'message' || data.type === 'missed-call') && data.userId) {
+  if ((data.type === 'message' || data.type === 'missed-call' || data.type === 'plan') && data.userId) {
     router.push({ pathname: '/chat/[id]', params: { id: data.userId } });
+  } else if (data.type === 'event') {
+    router.navigate('/events');
+  } else if (data.type === 'daily') {
+    router.navigate('/');
   }
 }
 

@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { create } from 'zustand';
 import { api, normalizeUser, type ChatMessage, type ChatSummary, type PublicUser } from '../lib/api';
 import { notifyLocal } from '../lib/notifications';
+import { cancelPlanReminder, schedulePlanReminder } from '../lib/reminders';
 import { realtime } from '../lib/realtime';
 import { useSession } from './session';
 import { toast } from './ui';
@@ -19,6 +20,9 @@ type ChatsState = {
   loadOlder(userId: string): Promise<void>;
   close(userId: string): void;
   send(user: PublicUser, text: string): Promise<void>;
+  sendVoice(user: PublicUser, data: string, seconds: number, type: string): Promise<void>;
+  planCall(user: PublicUser, at: number): Promise<void>;
+  cancelPlan(message: ChatMessage): Promise<void>;
   reset(): void;
 };
 
@@ -81,10 +85,40 @@ export const useChats = create<ChatsState>((set, get) => ({
     receive(message, user);
   },
 
+  async sendVoice(user, data, seconds, type) {
+    const { message } = await api.sendVoice(user.id, data, seconds, type);
+    receive(message, user);
+  },
+
+  async planCall(user, at) {
+    const { message } = await api.planCall(user.id, at);
+    receive(message, user);
+  },
+
+  async cancelPlan(message) {
+    const result = await api.cancelPlan(message.id);
+    update(result.message);
+  },
+
   reset() {
     set({ chats: [], unread: 0, loaded: false, threads: {}, active: null });
   },
 }));
+
+function update(message: ChatMessage) {
+  const me = useSession.getState().user?.id;
+  const otherId = message.from === me ? message.to : message.from;
+  useChats.setState((state) => {
+    const thread = state.threads[otherId];
+    return {
+      threads: thread
+        ? { ...state.threads, [otherId]: { ...thread, messages: thread.messages.map((m) => (m.id === message.id ? message : m)) } }
+        : state.threads,
+      chats: state.chats.map((c) => (c.last.id === message.id ? { ...c, last: message } : c)),
+    };
+  });
+  if (message.kind === 'plan' && message.plan?.cancelled) void cancelPlanReminder(message.id);
+}
 
 async function markRead(userId: string) {
   const chat = useChats.getState().chats.find((c) => c.user.id === userId);
@@ -118,6 +152,7 @@ function receive(message: ChatMessage, other: PublicUser) {
     unread: totalUnread(chats),
     threads: thread ? { ...state.threads, [otherId]: { ...thread, messages: upsert(thread.messages, message) } } : state.threads,
   });
+  if (message.kind === 'plan') void schedulePlanReminder(message, otherId, other.name);
   if (!incoming) return;
   if (viewing) {
     void api.markRead(otherId).catch(() => null);
@@ -125,7 +160,13 @@ function receive(message: ChatMessage, other: PublicUser) {
   }
   const missed = message.kind === 'missed-call';
   const title = missed ? `Missed call from ${other.name}` : other.name;
-  const body = missed ? 'Tap to call back.' : message.text;
+  const body = missed
+    ? 'Tap to call back.'
+    : message.kind === 'voice'
+      ? 'Sent you a voice message'
+      : message.kind === 'plan'
+        ? 'Planned a video call with you'
+        : message.text;
   notifyLocal('messages', title, body, { type: missed ? 'missed-call' : 'message', userId: otherId });
   toast(missed ? `You missed a call from ${other.name}` : `New message from ${other.name}`, missed ? 'call' : 'chatbubble', () =>
     router.push({ pathname: '/chat/[id]', params: { id: otherId } }),
@@ -139,6 +180,9 @@ realtime.subscribe((message) => {
       return;
     case 'chat.message':
       receive(message.message as ChatMessage, message.user as PublicUser);
+      return;
+    case 'chat.update':
+      update(message.message as ChatMessage);
       return;
     case 'chat.read': {
       const userId = String(message.userId);

@@ -113,6 +113,7 @@ export class Hub {
       user: toPublicUser(user),
       online: this.onlineCount,
       activeCallId: call?.state === 'active' ? call.id : null,
+      notices: this.store.unseenNotices(user.id),
     });
     if (call?.state === 'active') {
       this.send(this.peerOf(call, user.id), { type: 'peer.reconnected', callId: call.id });

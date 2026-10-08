@@ -191,6 +191,27 @@ CREATE TABLE IF NOT EXISTS events (
   ends_at INTEGER,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS notices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  seen_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS notices_user ON notices(user_id, seen_at);
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS voice_notes (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  data BLOB NOT NULL,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS event_attendees (
   event_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
@@ -199,7 +220,7 @@ CREATE TABLE IF NOT EXISTS event_attendees (
 );
 `;
 
-export type MessageKind = 'text' | 'missed-call';
+export type MessageKind = 'text' | 'missed-call' | 'voice' | 'plan';
 
 export type Message = {
   id: number;
@@ -209,6 +230,22 @@ export type Message = {
   text: string;
   createdAt: number;
   readAt: number | null;
+  voice?: { url: string; seconds: number };
+  plan?: { at: number; cancelled: boolean };
+};
+
+export type Notice = { id: number; kind: string; title: string; body: string; createdAt: number };
+
+export type ReportDetails = {
+  id: number;
+  reporterId: string;
+  reportedId: string;
+  reason: ReportReason;
+  details: string;
+  source: string;
+  createdAt: number;
+  resolved: boolean;
+  action: string | null;
 };
 
 type MessageRow = {
@@ -221,8 +258,17 @@ type MessageRow = {
   read_at: number | null;
 };
 
+function parseBody(body: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(body);
+    return value && typeof value === 'object' ? value : {};
+  } catch {
+    return {};
+  }
+}
+
 function toMessage(row: MessageRow): Message {
-  return {
+  const message: Message = {
     id: row.id,
     from: row.from_id,
     to: row.to_id,
@@ -231,6 +277,16 @@ function toMessage(row: MessageRow): Message {
     createdAt: row.created_at,
     readAt: row.read_at,
   };
+  if (row.kind === 'voice') {
+    const data = parseBody(row.body);
+    message.text = '';
+    message.voice = { url: `/api/voice/${String(data.id ?? '')}`, seconds: Number(data.seconds) || 0 };
+  } else if (row.kind === 'plan') {
+    const data = parseBody(row.body);
+    message.text = '';
+    message.plan = { at: Number(data.at) || 0, cancelled: data.cancelled === true };
+  }
+  return message;
 }
 
 export type TeaEvent = {
@@ -325,14 +381,16 @@ export class Store {
   }
 
   private migrate() {
-    const columns = new Set((this.db.all('PRAGMA table_info(users)') as { name: string }[]).map((c) => c.name));
-    const add = (name: string, definition: string) => {
-      if (!columns.has(name)) this.db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
+    const add = (table: string, name: string, definition: string) => {
+      const columns = new Set((this.db.all(`PRAGMA table_info(${table})`) as { name: string }[]).map((c) => c.name));
+      if (!columns.has(name)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
     };
-    add('languages', "TEXT NOT NULL DEFAULT '[]'");
-    add('birth_date', 'TEXT');
-    add('age_verified_at', 'INTEGER');
-    add('show_age', 'INTEGER NOT NULL DEFAULT 1');
+    add('users', 'languages', "TEXT NOT NULL DEFAULT '[]'");
+    add('users', 'birth_date', 'TEXT');
+    add('users', 'age_verified_at', 'INTEGER');
+    add('users', 'show_age', 'INTEGER NOT NULL DEFAULT 1');
+    add('reports', 'source', "TEXT NOT NULL DEFAULT 'call'");
+    add('reports', 'action', 'TEXT');
     const events = this.db.get('SELECT COUNT(*) AS n FROM events') as { n: number };
     if (!events.n) {
       const start = new Date();
@@ -346,6 +404,77 @@ export class Store {
         endsAt: start.getTime() + 2 * 60 * 60 * 1000,
       });
     }
+  }
+
+  getMessage(id: number): Message | null {
+    const row = this.db.get('SELECT * FROM messages WHERE id = ?', id) as MessageRow | undefined;
+    return row ? toMessage(row) : null;
+  }
+
+  setMessageBody(id: number, body: string) {
+    this.db.run('UPDATE messages SET body = ? WHERE id = ?', body, id);
+  }
+
+  upcomingPlans(id: string): Message[] {
+    const rows = this.db.all(
+      "SELECT * FROM messages WHERE kind = 'plan' AND (from_id = ? OR to_id = ?) AND created_at >= ? ORDER BY id DESC LIMIT 100",
+      id,
+      id,
+      Date.now() - 60 * 24 * 60 * 60 * 1000,
+    ) as MessageRow[];
+    const now = Date.now();
+    return rows.map(toMessage).filter((m) => m.plan && !m.plan.cancelled && m.plan.at > now);
+  }
+
+  saveVoice(ownerId: string, contentType: string, data: Uint8Array): string {
+    const id = randomUUID();
+    this.db.run('INSERT INTO voice_notes (id, owner_id, content_type, data, created_at) VALUES (?, ?, ?, ?, ?)', id, ownerId, contentType, data, Date.now());
+    return id;
+  }
+
+  getVoice(id: string): { contentType: string; data: Uint8Array } | null {
+    const row = this.db.get('SELECT content_type, data FROM voice_notes WHERE id = ?', id) as { content_type: string; data: Uint8Array | ArrayBuffer } | undefined;
+    if (!row) return null;
+    return { contentType: row.content_type, data: row.data instanceof Uint8Array ? row.data : new Uint8Array(row.data) };
+  }
+
+  addNotice(userId: string, kind: string, title: string, body: string): Notice {
+    const createdAt = Date.now();
+    this.db.run('INSERT INTO notices (user_id, kind, title, body, created_at) VALUES (?, ?, ?, ?, ?)', userId, kind, title, body, createdAt);
+    const row = this.db.get('SELECT id FROM notices WHERE user_id = ? ORDER BY id DESC LIMIT 1', userId) as { id: number };
+    return { id: row.id, kind, title, body, createdAt };
+  }
+
+  unseenNotices(userId: string): Notice[] {
+    const rows = this.db.all('SELECT * FROM notices WHERE user_id = ? AND seen_at IS NULL ORDER BY id ASC LIMIT 10', userId) as {
+      id: number;
+      kind: string;
+      title: string;
+      body: string;
+      created_at: number;
+    }[];
+    return rows.map((r) => ({ id: r.id, kind: r.kind, title: r.title, body: r.body, createdAt: r.created_at }));
+  }
+
+  markNoticesSeen(userId: string, ids: number[]) {
+    for (const id of ids.slice(0, 20)) this.db.run('UPDATE notices SET seen_at = ? WHERE id = ? AND user_id = ?', Date.now(), id, userId);
+  }
+
+  secret(key: string): string {
+    const row = this.db.get('SELECT value FROM settings WHERE key = ?', key) as { value: string } | undefined;
+    if (row) return row.value;
+    const value = randomBytes(32).toString('hex');
+    this.db.run('INSERT INTO settings (key, value) VALUES (?, ?)', key, value);
+    return value;
+  }
+
+  eventPeople(eventId: string, limit = 12): User[] {
+    const rows = this.db.all(
+      'SELECT u.* FROM event_attendees a JOIN users u ON u.id = a.user_id WHERE a.event_id = ? AND u.banned = 0 ORDER BY a.created_at ASC LIMIT ?',
+      eventId,
+      limit,
+    ) as UserRow[];
+    return rows.map(toUser);
   }
 
   addMessage(from: string, to: string, kind: MessageKind, text: string): Message {
@@ -402,7 +531,7 @@ export class Store {
   }
 
   messagesSentSince(id: string, since: number): number {
-    return (this.db.get('SELECT COUNT(*) AS n FROM messages WHERE from_id = ? AND kind = ? AND created_at >= ?', id, 'text', since) as { n: number }).n;
+    return (this.db.get("SELECT COUNT(*) AS n FROM messages WHERE from_id = ? AND kind IN ('text', 'voice', 'plan') AND created_at >= ?", id, since) as { n: number }).n;
   }
 
   setPushToken(id: string, platform: string, token: string) {
@@ -576,6 +705,8 @@ export class Store {
     this.db.run('DELETE FROM messages WHERE from_id = ? OR to_id = ?', id, id);
     this.db.run('DELETE FROM push_tokens WHERE user_id = ?', id);
     this.db.run('DELETE FROM event_attendees WHERE user_id = ?', id);
+    this.db.run('DELETE FROM notices WHERE user_id = ?', id);
+    this.db.run('DELETE FROM voice_notes WHERE owner_id = ?', id);
     this.db.run('DELETE FROM users WHERE id = ?', id);
     this.db.run('DELETE FROM reports WHERE reporter_id = ?', id);
   }
@@ -686,8 +817,43 @@ export class Store {
     return rows.map((row) => ({ user: toUser(row), metAt: row.met_at }));
   }
 
-  addReport(reporterId: string, reportedId: string, reason: ReportReason, details: string) {
-    this.db.run('INSERT INTO reports (reporter_id, reported_id, reason, details, created_at) VALUES (?, ?, ?, ?, ?)', reporterId, reportedId, reason, details, Date.now());
+  addReport(reporterId: string, reportedId: string, reason: ReportReason, details: string, source = 'call'): number {
+    this.db.run(
+      'INSERT INTO reports (reporter_id, reported_id, reason, details, source, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      reporterId,
+      reportedId,
+      reason,
+      details,
+      source,
+      Date.now(),
+    );
+    return (this.db.get('SELECT id FROM reports WHERE reporter_id = ? ORDER BY id DESC LIMIT 1', reporterId) as { id: number }).id;
+  }
+
+  getReport(id: number): ReportDetails | null {
+    const row = this.db.get('SELECT * FROM reports WHERE id = ?', id) as
+      | { id: number; reporter_id: string; reported_id: string; reason: ReportReason; details: string; source: string; created_at: number; resolved: number; action: string | null }
+      | undefined;
+    if (!row) return null;
+    return {
+      id: row.id,
+      reporterId: row.reporter_id,
+      reportedId: row.reported_id,
+      reason: row.reason,
+      details: row.details,
+      source: row.source,
+      createdAt: row.created_at,
+      resolved: !!row.resolved,
+      action: row.action,
+    };
+  }
+
+  setReportAction(id: number, action: string) {
+    this.db.run('UPDATE reports SET resolved = 1, action = ? WHERE id = ?', action, id);
+  }
+
+  reportCount(reportedId: string): number {
+    return (this.db.get('SELECT COUNT(*) AS n FROM reports WHERE reported_id = ?', reportedId) as { n: number }).n;
   }
 
   distinctReporters(reportedId: string, since: number): number {

@@ -17,16 +17,8 @@ type Props = {
 
 export function ListRow({ icon, label, detail, onPress, onLongPress, danger, right, last }: Props) {
   const tint = danger ? colors.danger : colors.primary;
-  return (
-    <Pressable
-      accessibilityRole={onPress ? 'button' : undefined}
-      accessibilityLabel={detail ? `${label}, ${detail}` : label}
-      onPress={onPress}
-      onLongPress={onLongPress}
-      delayLongPress={1500}
-      disabled={!onPress && !onLongPress}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfaceMuted }]}
-    >
+  const content = (
+    <>
       <View style={[styles.icon, { backgroundColor: danger ? colors.dangerSoft : colors.primarySoft }]}>
         <Ionicons name={icon} size={22} color={tint} />
       </View>
@@ -43,6 +35,19 @@ export function ListRow({ icon, label, detail, onPress, onLongPress, danger, rig
         </View>
         {right ?? (onPress ? <Ionicons name="chevron-forward" size={22} color={colors.textFaint} /> : null)}
       </View>
+    </>
+  );
+  if (!onPress && !onLongPress) return <View style={styles.row}>{content}</View>;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={detail ? `${label}, ${detail}` : label}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={1500}
+      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfaceMuted }]}
+    >
+      {content}
     </Pressable>
   );
 }

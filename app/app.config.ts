@@ -5,7 +5,7 @@ const { existsSync } = require('fs') as { existsSync(path: string): boolean };
 const serverUrl = process.env.TEATIME_SERVER_URL || 'https://teatime.hugoplayzpersonal.workers.dev';
 const bundleIdentifier = process.env.TEATIME_BUNDLE_ID || 'com.hugo245.teatime';
 const buildNumber = process.env.TEATIME_BUILD_NUMBER || '1';
-const runtimeVersion = '3';
+const runtimeVersion = '4';
 const googleServicesFile = process.env.GOOGLE_SERVICES_FILE || './google-services.json';
 const hasFirebase = existsSync(googleServicesFile);
 
