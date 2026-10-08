@@ -34,6 +34,7 @@ export type ServerOptions = {
   firebaseServiceAccount?: string;
   discordWebhookUrl?: string;
   turn?: TurnOptions;
+  minIosBuild?: number;
 };
 
 export type TeaTimeServer = {

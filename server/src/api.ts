@@ -41,6 +41,7 @@ export type ApiOptions = {
   firebaseServiceAccount?: string;
   discordWebhookUrl?: string;
   turn?: TurnOptions;
+  minIosBuild?: number;
 };
 
 export type Api = {
@@ -104,6 +105,14 @@ function decodeBase64(value: unknown): Uint8Array | null {
   } catch {
     return null;
   }
+}
+
+const UPDATE_MESSAGE =
+  'This version of TeaTime is too old. Please install the newest TeaTime with Sideloadly, then open it again. Your profile and friends are saved and will come back.';
+
+function iosBuild(request: Request): number | null {
+  const match = (request.headers.get('user-agent') ?? '').match(/^TeaTime\/(\d+) CFNetwork\//);
+  return match ? Number(match[1]) : null;
 }
 
 function isLoopback(ip: string) {
@@ -233,6 +242,28 @@ export function createApi(store: Store, options: ApiOptions): Api {
     if (path === '/health') return json(200, { ok: true, online: hub.onlineCount });
     if (path === '/privacy') return html(privacyPage(options.supportEmail));
     if (path === '/terms') return html(termsPage(options.supportEmail));
+
+    const build = iosBuild(request);
+    if (build !== null && options.minIosBuild && build < options.minIosBuild && path.startsWith('/api/') && !path.startsWith('/api/users/') && !path.startsWith('/api/voice/')) {
+      const header = request.headers.get('authorization') ?? '';
+      const old = header.startsWith('Bearer ') ? store.getUserByToken(header.slice(7).trim()) : null;
+      if (old && !old.banned) {
+        store.lockForUpdate(old.id);
+        hub.disconnectUser(old.id, 4001, 'update');
+      }
+      log('old app blocked', { build, userId: old?.id ?? null, path });
+      return json(old ? 401 : 426, { error: UPDATE_MESSAGE, code: old ? 'unauthorized' : 'update-required' });
+    }
+
+    if (path === '/api/restore' && method === 'POST') {
+      if (!isLoopback(ip) && !registerLimiter.allow(ip)) throw new HttpError(429, 'Please wait a little and try again.', 'rate-limited');
+      const body = await readJson(request);
+      const deviceId = parseDeviceId(body.deviceId);
+      const restored = deviceId ? store.restoreAfterUpdate(deviceId) : null;
+      if (!restored) throw new HttpError(404, 'Nothing to restore.', 'not-found');
+      log('account restored after update', { userId: restored.user.id });
+      return json(200, { token: restored.token, user: toPublicUser(restored.user) });
+    }
 
     if (path === '/api/config' && method === 'GET') {
       return json(200, { iceServers: [...options.iceServers, ...(await turnServers())], online: hub.onlineCount, supportEmail: options.supportEmail, ageCheck: true, ageTestSkip: !!options.ageTestSkip, push: !!pusher });

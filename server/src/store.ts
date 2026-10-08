@@ -389,6 +389,7 @@ export class Store {
     add('users', 'birth_date', 'TEXT');
     add('users', 'age_verified_at', 'INTEGER');
     add('users', 'show_age', 'INTEGER NOT NULL DEFAULT 1');
+    add('users', 'update_locked_at', 'INTEGER');
     add('reports', 'source', "TEXT NOT NULL DEFAULT 'call'");
     add('reports', 'action', 'TEXT');
     const events = this.db.get('SELECT COUNT(*) AS n FROM events') as { n: number };
@@ -630,6 +631,21 @@ export class Store {
         now,
       );
     return { user: this.getUser(id)!, token };
+  }
+
+  lockForUpdate(id: string) {
+    this.db.run('UPDATE users SET update_locked_at = ? WHERE id = ? AND update_locked_at IS NULL', Date.now(), id);
+  }
+
+  restoreAfterUpdate(deviceId: string): { user: User; token: string } | null {
+    const row = this.db.get(
+      'SELECT id FROM users WHERE device_id = ? AND update_locked_at IS NOT NULL AND banned = 0 ORDER BY last_seen DESC LIMIT 1',
+      deviceId,
+    ) as { id: string } | undefined;
+    if (!row) return null;
+    const token = randomBytes(32).toString('base64url');
+    this.db.run('UPDATE users SET token_hash = ?, update_locked_at = NULL WHERE id = ?', hashToken(token), row.id);
+    return { user: this.getUser(row.id)!, token };
   }
 
   getUser(id: string): User | null {

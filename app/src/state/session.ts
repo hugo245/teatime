@@ -63,10 +63,17 @@ export const useSession = create<SessionState>((set, get) => ({
       if (reason === 'deleted') void get().signOut(null);
     });
 
-    const token = await getSecret(TOKEN_KEY);
+    let token = await getSecret(TOKEN_KEY);
     if (!token) {
-      set({ status: 'signedOut' });
-      return;
+      const savedDevice = await getSecret(DEVICE_KEY);
+      const restored = savedDevice ? await api.restore(savedDevice).catch(() => null) : null;
+      if (!restored) {
+        set({ status: 'signedOut' });
+        return;
+      }
+      token = restored.token;
+      await setSecret(TOKEN_KEY, token);
+      await setJson(USER_KEY, restored.user);
     }
     setApiToken(token);
     const cached = await getJson<PublicUser>(USER_KEY);

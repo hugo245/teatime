@@ -16,6 +16,7 @@ before(async () => {
     supportEmail: 'help@example.org',
     adminToken: 'admin-secret',
     ageTestSkip: true,
+    minIosBuild: 13,
     hub: { ringTimeoutMs: 400, reconnectGraceMs: 200, rematchCooldownMs: 60_000, rematchWaitMs: 300, matchIntervalMs: 100, offlineRingMs: 600 },
   });
   await new Promise((resolve) => server.http.listen(0, '127.0.0.1', resolve));
@@ -739,6 +740,36 @@ test('reports go to Discord and moderators can warn or remove', { skip: !!proces
     await own.close();
     await new Promise((resolve) => discord.close(resolve));
   }
+});
+
+test('old iPhone builds are asked to update and get their account back', async () => {
+  const deviceId = 'device-old-build-1234';
+  const reg = await register('Olive Old', { deviceId });
+  const oldApp = { 'user-agent': 'TeaTime/10 CFNetwork/1568.100.1 Darwin/24.0.0', 'content-type': 'application/json' };
+  const newApp = { 'user-agent': 'TeaTime/13 CFNetwork/1568.100.1 Darwin/24.0.0', 'content-type': 'application/json' };
+
+  const blocked = await fetch(base + '/api/me', { headers: { ...oldApp, authorization: `Bearer ${reg.token}` } });
+  assert.equal(blocked.status, 401);
+  const body = await blocked.json();
+  assert.equal(body.code, 'unauthorized');
+  assert.match(body.error, /too old/);
+
+  const signup = await fetch(base + '/api/register', { method: 'POST', headers: oldApp, body: JSON.stringify({ name: 'Olive Again' }) });
+  assert.equal(signup.status, 426);
+  assert.match((await signup.json()).error, /Sideloadly/);
+
+  const fine = await fetch(base + '/api/config', { headers: newApp });
+  assert.equal(fine.status, 200);
+
+  const restored = await fetch(base + '/api/restore', { method: 'POST', headers: newApp, body: JSON.stringify({ deviceId }) });
+  assert.equal(restored.status, 200);
+  const back = await restored.json();
+  assert.equal(back.user.id, reg.user.id);
+  const me = await fetch(base + '/api/me', { headers: { ...newApp, authorization: `Bearer ${back.token}` } });
+  assert.equal((await me.json()).user.name, 'Olive Old');
+
+  const again = await fetch(base + '/api/restore', { method: 'POST', headers: newApp, body: JSON.stringify({ deviceId }) });
+  assert.equal(again.status, 404);
 });
 
 test('serves config and health', async () => {

@@ -177,6 +177,8 @@ export const api = {
     request<{ latest: LatestApp | null }>(`/api/app/latest?platform=${platform}`, { auth: false }).then((d) => d.latest ?? null),
   register: (profile: ProfileInput & { deviceId: string }) =>
     request<{ token: string; user: PublicUser }>('/api/register', { method: 'POST', body: profile, auth: false }).then(withUser),
+  restore: (deviceId: string) =>
+    request<{ token: string; user: PublicUser }>('/api/restore', { method: 'POST', body: { deviceId }, auth: false }).then(withUser),
   me: () => request<{ user: PublicUser; showAge?: boolean }>('/api/me').then(withUser),
   updateMe: (patch: Partial<ProfileInput>) =>
     request<{ user: PublicUser; showAge?: boolean }>('/api/me', { method: 'PATCH', body: patch }).then(withUser),

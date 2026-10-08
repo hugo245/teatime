@@ -43,6 +43,7 @@ const server = createTeaTimeServer({
   firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT,
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL,
   turn: { keyId: process.env.TURN_KEY_ID, apiToken: process.env.TURN_KEY_API_TOKEN },
+  minIosBuild: Number(process.env.MIN_IOS_BUILD ?? 13),
   log,
 });
 

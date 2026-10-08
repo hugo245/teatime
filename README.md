@@ -128,6 +128,10 @@ Without SideStore the button explains that the update has to be installed with S
 
 Phones only get updates made for their own `runtimeVersion`, so an update never breaks an older install.
 
+### Very old iPhone builds
+
+iPhone builds from before the update button (12 and older) cannot show an update card. The server recognises them and asks them to update instead: they get signed out, and when they try to sign up again they see "This version of TeaTime is too old. Please install the newest TeaTime with Sideloadly". Their profile and friends stay on the server, and the new app signs them back in by itself. To change which builds count as too old, run `npx wrangler secret put MIN_IOS_BUILD` in the `server` folder and type a build number.
+
 ## Notifications when TeaTime is closed
 
 While TeaTime is open or was used a moment ago, messages and calls show up as notifications on both iPhone and Android with no setup.
@@ -220,6 +224,7 @@ docker run -p 8080:8080 -v teatime-data:/data \
 | `AGE_TEST_SKIP` | Set to `0` to turn off the hidden testing shortcut in the age check |
 | `DISCORD_WEBHOOK_URL` | Discord webhook link for reports |
 | `TURN_KEY_ID`, `TURN_KEY_API_TOKEN` | Cloudflare TURN key, so calls work on mobile data too |
+| `MIN_IOS_BUILD` | iPhone builds older than this are asked to install the newest TeaTime. Default `13` |
 | `UPDATES_URL` | Where app updates are downloaded from, default `https://github.com/hugo245/teatime/releases/download` |
 
 ### TURN relay for mobile networks
