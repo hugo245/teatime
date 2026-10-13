@@ -57,13 +57,19 @@ if (major < 22 || (major === 22 && minor < 13)) {
   process.exit(1);
 }
 
-if (!existsSync(join(appDir, 'node_modules'))) {
-  say('Installing app packages (first run only, this takes a minute)');
-  run(npm, ['ci', '--no-audit', '--no-fund'], appDir);
+function needsInstall(dir, binary) {
+  const marker = join(dir, 'node_modules', '.package-lock.json');
+  if (!existsSync(marker) || !existsSync(join(dir, 'node_modules', '.bin', binary))) return true;
+  return statSync(join(dir, 'package-lock.json')).mtimeMs > statSync(marker).mtimeMs;
 }
-if (!existsSync(join(serverDir, 'node_modules'))) {
+
+if (needsInstall(appDir, 'expo')) {
+  say('Installing app packages (this takes a few minutes the first time)');
+  run(npm, ['install', '--no-audit', '--no-fund'], appDir);
+}
+if (needsInstall(serverDir, 'tsc')) {
   say('Installing server packages');
-  run(npm, ['ci', '--no-audit', '--no-fund'], serverDir);
+  run(npm, ['install', '--no-audit', '--no-fund'], serverDir);
 }
 
 if (flag('rebuild') || newestFile(join(serverDir, 'src')) > newestFile(join(serverDir, 'dist'))) {
