@@ -16,7 +16,9 @@ const option = (name, fallback) => {
 };
 
 const port = Number(option('port', process.env.PORT ?? 8080));
-const phones = Number(option('phones', 2));
+const live = flag('live');
+const liveServer = option('server', 'https://teatime.hugoplayzpersonal.workers.dev').replace(/\/+$/, '');
+const phones = Number(option('phones', live ? 1 : 2));
 const npm = platform() === 'win32' ? 'npm.cmd' : 'npm';
 const npx = platform() === 'win32' ? 'npx.cmd' : 'npx';
 
@@ -69,7 +71,8 @@ if (flag('rebuild') || newestFile(join(serverDir, 'src')) > newestFile(join(serv
   run(npm, ['run', 'build'], serverDir);
 }
 
-const webIndex = join(appDir, 'dist', 'index.html');
+const webDir = join(appDir, live ? 'dist-live' : 'dist');
+const webIndex = join(webDir, 'index.html');
 const appSources = Math.max(
   newestFile(join(appDir, 'src')),
   newestFile(join(appDir, 'assets')),
@@ -77,11 +80,11 @@ const appSources = Math.max(
   newestFile(join(appDir, 'package-lock.json')),
 );
 if (flag('rebuild') || !existsSync(webIndex) || appSources > statSync(webIndex).mtimeMs) {
-  say('Building the TeaTime app for the simulator');
-  run(npx, ['expo', 'export', '--platform', 'web', '--output-dir', 'dist', '--clear'], appDir, {
+  say(live ? `Building the TeaTime app for ${liveServer}` : 'Building the TeaTime app for the simulator');
+  run(npx, ['expo', 'export', '--platform', 'web', '--output-dir', live ? 'dist-live' : 'dist', '--clear'], appDir, {
     EXPO_NO_TELEMETRY: '1',
     EXPO_OFFLINE: '1',
-    EXPO_PUBLIC_SERVER_URL: '',
+    EXPO_PUBLIC_SERVER_URL: live ? liveServer : '',
   });
 }
 
@@ -93,7 +96,7 @@ const server = spawn(process.execPath, ['--no-warnings', join(serverDir, 'dist',
     ...process.env,
     PORT: String(port),
     DATABASE_FILE: join(serverDir, 'data', 'simulator.db'),
-    WEB_APP_DIR: join(appDir, 'dist'),
+    WEB_APP_DIR: webDir,
     SIMULATOR_DIR: join(root, 'simulator', 'public'),
     SUPPORT_EMAIL: process.env.SUPPORT_EMAIL ?? 'support@teatime.app',
   },
@@ -108,11 +111,15 @@ server.stdout.on('data', (chunk) => {
     const url = `http://localhost:${port}/simulator${phones !== 2 ? `?phones=${phones}` : ''}`;
     console.log('');
     say(`Simulator ready at \x1b[1m${url}\x1b[0m`);
+    if (live) {
+      say(`These phones use the real TeaTime server at ${liveServer}, so you meet and chat with real users`);
+      say(`One phone without the frame: http://localhost:${port}/`);
+    }
     const lan = Object.values(networkInterfaces())
       .flat()
       .filter((net) => net && net.family === 'IPv4' && !net.internal)
       .map((net) => `http://${net.address}:${port}`);
-    if (lan.length) {
+    if (lan.length && !live) {
       say(`To call a real iPhone on the same Wi-Fi, set its server address to ${lan[0]}`);
       say('(Profile, then hold your finger on the version number for two seconds)');
     }

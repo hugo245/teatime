@@ -83,6 +83,16 @@ The toolbar at the top has:
 
 Options: `npm run simulator -- --port 9000`, `--phones 3` for three phones, `--no-open` to skip opening the browser, `--rebuild` to force a fresh build.
 
+### Use the real server in your browser
+
+```bash
+npm run live
+```
+
+This opens TeaTime in a phone frame in your browser, connected to the real TeaTime server. It is the same app as on the phones, so you can meet, chat and call with people who use TeaTime on their iPhone or Android. Add `-- --phones 2` for two phones side by side, or open `http://localhost:8080/` for one phone without the frame. To use a different server, add `-- --server https://your-server`.
+
+Chrome or Edge work best. Allow the camera and microphone when the browser asks.
+
 ## Install it on your iPhone
 
 The latest build is always on the [ios-latest release](https://github.com/hugo245/teatime/releases/tag/ios-latest) as `TeaTime.ipa`. A new one is built every time the app code changes.
