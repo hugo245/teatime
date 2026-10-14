@@ -382,6 +382,9 @@ function handleMessage(message: ServerMessage) {
   const state = get();
   switch (message.type) {
     case 'hello': {
+      const leftOver = typeof message.activeCallId === 'string' ? message.activeCallId : null;
+      const stillInIt = (state.phase === 'connecting' || state.phase === 'live') && leftOver === state.callId;
+      if (leftOver && !stillInIt) realtime.send({ type: 'call.hangup', callId: leftOver });
       if (state.phase === 'searching') realtime.send({ type: 'meet.start', verifiedOnly: wantsVerified() });
       if ((state.phase === 'connecting' || state.phase === 'live') && message.activeCallId !== state.callId) {
         finish('disconnected', false);

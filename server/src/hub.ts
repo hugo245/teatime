@@ -88,7 +88,20 @@ export class Hub {
   }
 
   isInCall(userId: string) {
-    return this.userCall.has(userId);
+    const callId = this.userCall.get(userId);
+    return !!callId && this.calls.get(callId)?.state === 'active';
+  }
+
+  private leaveCurrentCall(userId: string) {
+    const callId = this.userCall.get(userId);
+    if (!callId) return;
+    const call = this.calls.get(callId);
+    if (!call) {
+      this.userCall.delete(userId);
+      return;
+    }
+    if (call.state === 'ringing') this.endCall(call, userId, call.caller === userId ? 'cancelled' : 'declined');
+    else this.endCall(call, userId, 'hangup');
   }
 
   attach(user: User, socket: HubSocket) {
@@ -263,10 +276,7 @@ export class Hub {
   }
 
   private startMeeting(userId: string, wantsVerified: boolean) {
-    if (this.userCall.has(userId)) {
-      this.send(userId, { type: 'error', code: 'busy' });
-      return;
-    }
+    this.leaveCurrentCall(userId);
     this.leaveQueue(userId);
     const verifiedOnly = wantsVerified && !!this.store.getUser(userId)?.ageVerified;
     const entry: QueueEntry = { userId, since: Date.now(), verifiedOnly };
@@ -343,10 +353,7 @@ export class Hub {
       this.send(callerId, { type: 'call.unavailable', userId: calleeId, reason: 'not-friends' });
       return;
     }
-    if (this.userCall.has(callerId)) {
-      this.send(callerId, { type: 'error', code: 'busy' });
-      return;
-    }
+    this.leaveCurrentCall(callerId);
     if (this.userCall.has(calleeId)) {
       this.send(callerId, { type: 'call.unavailable', userId: calleeId, reason: 'busy' });
       return;

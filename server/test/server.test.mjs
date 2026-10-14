@@ -772,6 +772,40 @@ test('old iPhone builds are asked to update and get their account back', async (
   assert.equal(again.status, 404);
 });
 
+test('a call left open after an app restart does not keep people busy', async () => {
+  const a = await register('Restarter');
+  const b = await register('Waiter');
+  const sa = await connect(a.token);
+  const sb = await connect(b.token);
+  sa.send({ type: 'meet.start' });
+  await sa.next('meet.searching');
+  sb.send({ type: 'meet.start' });
+  const start = await sa.next('call.start');
+  await sb.next('call.start');
+  await api(`/api/friends/${b.user.id}`, { token: a.token, method: 'POST' });
+  await api(`/api/friends/${a.user.id}`, { token: b.token, method: 'POST' });
+
+  await sa.close();
+  const back = await connect(a.token);
+  const busyBefore = await api('/api/friends', { token: b.token });
+  assert.equal(busyBefore.body.friends[0].busy, true);
+  back.send({ type: 'meet.start' });
+  await back.next('meet.searching');
+  const ended = await sb.next('call.ended');
+  assert.equal(ended.callId, start.callId);
+  const busyAfter = await api('/api/friends', { token: b.token });
+  assert.equal(busyAfter.body.friends[0].busy, false);
+  back.send({ type: 'meet.stop' });
+
+  await sb.close();
+  await new Promise((r) => setTimeout(r, 50));
+  back.send({ type: 'call.ring', userId: b.user.id });
+  await back.next('call.ringing');
+  const ringing = await api('/api/friends', { token: a.token });
+  assert.equal(ringing.body.friends[0].busy, false);
+  await back.close();
+});
+
 test('serves config and health', async () => {
   const config = await api('/api/config');
   assert.equal(config.body.iceServers[0].urls, 'stun:stun.example.org:3478');
