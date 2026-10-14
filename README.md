@@ -75,11 +75,12 @@ The first run installs packages and builds the app, which takes a few minutes. Y
 3. Tap **Add friend** on one phone and **Accept friend** on the other.
 4. Tap **End call**, open the **Friends** tab and tap **Call**. The other phone rings.
 
-The toolbar at the top has:
+The page only shows the phones. Add these to the address if you need them:
 
-* **Camera**: use your webcam, or a demo video if you have no webcam or want each phone to look different.
-* **Call sound**: off by default. Both phones share your computer's speakers and microphone, so sound on both causes echo. Turn it on with headphones.
-* **Restart phones** reloads both apps. **Reset phones** starts both from the welcome screen as new people.
+* `?camera=demo` uses a demo video instead of your webcam.
+* `?sound=on` turns on call sound. It is off by default because two phones on one computer echo. Use headphones.
+* `?reset` starts the phones again from the welcome screen as new people.
+* `?phones=1` or `?phones=3` for a different number of phones.
 
 Options: `npm run simulator -- --port 9000`, `--phones 3` for three phones, `--no-open` to skip opening the browser, `--rebuild` to force a fresh build.
 

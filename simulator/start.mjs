@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { networkInterfaces, platform } from 'node:os';
+import { platform } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -64,7 +64,7 @@ function needsInstall(dir, binary) {
 }
 
 if (needsInstall(appDir, 'expo')) {
-  say('Installing app packages (this takes a few minutes the first time)');
+  say('Installing app packages, this takes a few minutes the first time');
   run(npm, ['install', '--no-audit', '--no-fund'], appDir);
 }
 if (needsInstall(serverDir, 'tsc')) {
@@ -86,7 +86,7 @@ const appSources = Math.max(
   newestFile(join(appDir, 'package-lock.json')),
 );
 if (flag('rebuild') || !existsSync(webIndex) || appSources > statSync(webIndex).mtimeMs) {
-  say(live ? `Building the TeaTime app for ${liveServer}` : 'Building the TeaTime app for the simulator');
+  say('Building the app');
   run(npx, ['expo', 'export', '--platform', 'web', '--output-dir', live ? 'dist-live' : 'dist', '--clear'], appDir, {
     EXPO_NO_TELEMETRY: '1',
     EXPO_OFFLINE: '1',
@@ -94,7 +94,6 @@ if (flag('rebuild') || !existsSync(webIndex) || appSources > statSync(webIndex).
   });
 }
 
-say('Starting the TeaTime server');
 const server = spawn(process.execPath, ['--no-warnings', join(serverDir, 'dist', 'index.js')], {
   cwd: serverDir,
   stdio: ['ignore', 'pipe', 'inherit'],
@@ -115,21 +114,7 @@ server.stdout.on('data', (chunk) => {
   if (!opened && text.includes('TeaTime server listening')) {
     opened = true;
     const url = `http://localhost:${port}/simulator${phones !== 2 ? `?phones=${phones}` : ''}`;
-    console.log('');
-    say(`Simulator ready at \x1b[1m${url}\x1b[0m`);
-    if (live) {
-      say(`These phones use the real TeaTime server at ${liveServer}, so you meet and chat with real users`);
-      say(`One phone without the frame: http://localhost:${port}/`);
-    }
-    const lan = Object.values(networkInterfaces())
-      .flat()
-      .filter((net) => net && net.family === 'IPv4' && !net.internal)
-      .map((net) => `http://${net.address}:${port}`);
-    if (lan.length && !live) {
-      say(`To call a real iPhone on the same Wi-Fi, set its server address to ${lan[0]}`);
-      say('(Profile, then hold your finger on the version number for two seconds)');
-    }
-    say('Press Ctrl+C to stop');
+    say(`TeaTime is running at \x1b[1m${url}\x1b[0m  (Ctrl+C to stop)`);
     if (!flag('no-open')) openBrowser(url);
   }
 });
@@ -140,7 +125,7 @@ function openBrowser(url) {
   try {
     spawn(command, commandArgs, { stdio: 'ignore', detached: true }).unref();
   } catch {
-    say(`Open ${url} in Chrome, Edge, Safari or Firefox`);
+    say(`Open ${url} in your browser`);
   }
 }
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TeaTime Simulator</title>
+  <title>TeaTime</title>
   <link rel="icon" href="/simulator/favicon.png">
   <style>
     :root {
@@ -20,44 +20,19 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; }
     body {
-      background: radial-gradient(1200px 700px at 50% 0%, #F7F3EE 0%, var(--bg) 70%);
+      background: var(--bg);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       overflow: hidden;
     }
-    header {
-      height: 68px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 0 24px;
-    }
-    .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; font-size: 19px; letter-spacing: -0.01em; }
-    .brand img { width: 34px; height: 34px; border-radius: 9px; }
-    .brand span { color: var(--muted); font-weight: 600; }
-    .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
-    .segmented {
-      display: inline-flex; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 3px;
-    }
-    .segmented button, .btn {
-      font: inherit; font-size: 14px; font-weight: 650; border: 0; background: transparent; color: var(--muted);
-      padding: 8px 14px; border-radius: 999px; cursor: pointer;
-    }
-    .segmented button[aria-pressed="true"] { background: var(--primary); color: #fff; }
-    .btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
-    .btn:hover { background: #F6F2EC; }
-    .label { font-size: 13px; color: var(--muted); font-weight: 600; margin-right: 2px; }
     main {
-      height: calc(100% - 68px - 40px);
+      height: 100%;
       display: flex;
       align-items: center;
       justify-content: center;
     }
     #stage { display: flex; gap: 72px; transform-origin: center center; }
-    .device { display: flex; flex-direction: column; align-items: center; gap: 14px; }
-    .device-name { font-size: 15px; font-weight: 700; color: var(--muted); display: flex; gap: 10px; align-items: center; }
-    .device-name a { color: var(--primary); font-weight: 600; text-decoration: none; font-size: 13px; }
+    .device { display: flex; flex-direction: column; align-items: center; }
     .frame {
       position: relative;
       padding: 14px;
@@ -100,13 +75,7 @@
       transition: background 0.2s ease;
     }
     .home.light { background: #fff; }
-    footer {
-      height: 40px; display: flex; align-items: center; justify-content: center;
-      color: var(--muted); font-size: 13px; gap: 6px; text-align: center; padding: 0 16px;
-    }
-    footer code { background: rgba(255,255,255,0.7); padding: 2px 6px; border-radius: 6px; }
     @media (max-width: 900px) {
-      header { height: auto; padding: 12px 16px; flex-direction: column; align-items: flex-start; }
       body { overflow: auto; }
       main { height: auto; padding: 24px 0; }
       #stage { flex-direction: column; gap: 40px; }
@@ -114,36 +83,12 @@
   </style>
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <img src="/simulator/favicon.png" alt="">
-      TeaTime <span>Simulator</span>
-    </div>
-    <div class="controls">
-      <span class="label">Camera</span>
-      <div class="segmented" role="group" aria-label="Camera">
-        <button type="button" data-camera="real">Webcam</button>
-        <button type="button" data-camera="demo">Demo video</button>
-      </div>
-      <span class="label">Call sound</span>
-      <div class="segmented" role="group" aria-label="Call sound">
-        <button type="button" data-sound="off">Off</button>
-        <button type="button" data-sound="on">On</button>
-      </div>
-      <button class="btn" type="button" id="reload">Restart phones</button>
-      <button class="btn" type="button" id="reset">Reset phones</button>
-    </div>
-  </header>
-
   <main>
     <div id="stage"></div>
   </main>
 
-  <footer id="hint">Each phone is its own TeaTime user. Tap Meet someone new on both phones to connect them.</footer>
-
   <template id="device-template">
     <div class="device">
-      <div class="device-name"><span class="title"></span><a target="_blank" rel="noopener">Open alone</a></div>
       <div class="frame">
         <div class="screen">
           <div class="statusbar">
@@ -164,20 +109,24 @@
 
   <script>
     (function () {
-      var DEVICES = ['a', 'b'];
       var params = new URLSearchParams(location.search);
       var count = Math.max(1, Math.min(4, Number(params.get('phones')) || 2));
-      DEVICES = 'abcd'.slice(0, count).split('');
+      var DEVICES = 'abcd'.slice(0, count).split('');
 
-      var store = {
-        get: function () {
-          try { return JSON.parse(localStorage.getItem('teatime-simulator') || '{}'); } catch (e) { return {}; }
-        },
-        set: function (value) {
-          try { localStorage.setItem('teatime-simulator', JSON.stringify(value)); } catch (e) {}
+      if (params.has('reset')) {
+        var remove = [];
+        for (var i = 0; i < localStorage.length; i++) {
+          var key = localStorage.key(i);
+          if (key && key.indexOf('teatime:') === 0) remove.push(key);
         }
+        remove.forEach(function (k) { localStorage.removeItem(k); });
+        history.replaceState(null, '', location.pathname + (count !== 2 ? '?phones=' + count : ''));
+      }
+
+      var settings = {
+        camera: params.get('camera') === 'demo' ? 'demo' : 'real',
+        sound: params.get('sound') === 'on' ? 'on' : 'off'
       };
-      var settings = Object.assign({ camera: 'real', sound: 'off' }, store.get());
 
       var stage = document.getElementById('stage');
       var template = document.getElementById('device-template');
@@ -190,37 +139,16 @@
 
       DEVICES.forEach(function (device) {
         var node = template.content.firstElementChild.cloneNode(true);
-        node.querySelector('.title').textContent = 'iPhone ' + device.toUpperCase();
-        var link = node.querySelector('a');
-        link.href = appUrl(device);
         var iframe = node.querySelector('iframe');
         iframe.src = appUrl(device);
         iframe.title = 'TeaTime on iPhone ' + device.toUpperCase();
         stage.appendChild(node);
         frames[device] = {
           iframe: iframe,
-          link: link,
           statusbar: node.querySelector('.statusbar'),
           home: node.querySelector('.home')
         };
       });
-
-      function render() {
-        document.querySelectorAll('[data-camera]').forEach(function (b) {
-          b.setAttribute('aria-pressed', String(b.dataset.camera === settings.camera));
-        });
-        document.querySelectorAll('[data-sound]').forEach(function (b) {
-          b.setAttribute('aria-pressed', String(b.dataset.sound === settings.sound));
-        });
-      }
-
-      function reloadAll() {
-        DEVICES.forEach(function (d) {
-          frames[d].iframe.src = appUrl(d);
-          frames[d].link.href = appUrl(d);
-          setStatusStyle(d, 'dark');
-        });
-      }
 
       function setStatusStyle(device, style) {
         var f = frames[device];
@@ -228,41 +156,6 @@
         f.statusbar.classList.toggle('light', style === 'light');
         f.home.classList.toggle('light', style === 'light');
       }
-
-      document.querySelectorAll('[data-camera]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          if (settings.camera === b.dataset.camera) return;
-          settings.camera = b.dataset.camera;
-          store.set(settings);
-          render();
-          reloadAll();
-        });
-      });
-
-      document.querySelectorAll('[data-sound]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          settings.sound = b.dataset.sound;
-          store.set(settings);
-          render();
-          DEVICES.forEach(function (d) {
-            frames[d].link.href = appUrl(d);
-            try { frames[d].iframe.contentWindow.postMessage({ type: 'teatime:sound', on: settings.sound === 'on' }, '*'); } catch (e) {}
-          });
-        });
-      });
-
-      document.getElementById('reload').addEventListener('click', reloadAll);
-
-      document.getElementById('reset').addEventListener('click', function () {
-        if (!confirm('Reset both phones? They will start again from the welcome screen as new people.')) return;
-        var remove = [];
-        for (var i = 0; i < localStorage.length; i++) {
-          var key = localStorage.key(i);
-          if (DEVICES.some(function (d) { return key.indexOf('teatime:' + d + ':') === 0; })) remove.push(key);
-        }
-        remove.forEach(function (k) { localStorage.removeItem(k); });
-        reloadAll();
-      });
 
       window.addEventListener('message', function (event) {
         var data = event.data || {};
@@ -279,14 +172,13 @@
 
       function fit() {
         if (window.innerWidth <= 900) { stage.style.transform = ''; return; }
-        var available = window.innerHeight - 68 - 40 - 24;
+        var available = window.innerHeight - 48;
         var widthNeeded = DEVICES.length * (393 + 28) + (DEVICES.length - 1) * 72 + 48;
-        var scale = Math.min(1, available / (852 + 28 + 34), window.innerWidth / widthNeeded);
+        var scale = Math.min(1, available / (852 + 28), window.innerWidth / widthNeeded);
         stage.style.transform = 'scale(' + scale.toFixed(3) + ')';
       }
       window.addEventListener('resize', fit);
       fit();
-      render();
     })();
   </script>
 </body>
