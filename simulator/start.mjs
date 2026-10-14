@@ -94,6 +94,12 @@ if (flag('rebuild') || !existsSync(webIndex) || appSources > statSync(webIndex).
   });
 }
 
+const busy = await fetch(`http://localhost:${port}/health`).then(() => true, () => false);
+if (busy) {
+  console.error(`Something is already running on port ${port}, probably an older TeaTime. Close that Terminal window or run: lsof -ti :${port} | xargs kill`);
+  process.exit(1);
+}
+
 const server = spawn(process.execPath, ['--no-warnings', join(serverDir, 'dist', 'index.js')], {
   cwd: serverDir,
   stdio: ['ignore', 'pipe', 'inherit'],
