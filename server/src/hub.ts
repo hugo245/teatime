@@ -241,6 +241,13 @@ export class Hub {
     }
   }
 
+  broadcast(payload: unknown) {
+    const text = JSON.stringify(payload);
+    for (const client of this.clients.values()) {
+      if (client.socket.readyState === OPEN) client.socket.send(text);
+    }
+  }
+
   notifyFriendsChanged(userId: string) {
     this.send(userId, { type: 'friends.changed' });
   }

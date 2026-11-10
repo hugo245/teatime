@@ -175,7 +175,7 @@ export const api = {
   config: () => request<{ iceServers: IceServer[]; online: number; supportEmail: string; ageTestSkip?: boolean }>('/api/config', { auth: false }),
   latestApp: (platform: string) =>
     request<{ latest: LatestApp | null }>(`/api/app/latest?platform=${platform}`, { auth: false }).then((d) => d.latest ?? null),
-  register: (profile: ProfileInput & { deviceId: string }) =>
+  register: (profile: ProfileInput & { deviceId?: string }) =>
     request<{ token: string; user: PublicUser }>('/api/register', { method: 'POST', body: profile, auth: false }).then(withUser),
   restore: (deviceId: string) =>
     request<{ token: string; user: PublicUser }>('/api/restore', { method: 'POST', body: { deviceId }, auth: false }).then(withUser),

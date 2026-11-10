@@ -521,6 +521,7 @@ export function createApi(store: Store, options: ApiOptions): Api {
       const me = authenticate(request);
       if (!store.eventExists(attendMatch[1]!)) throw new HttpError(404, 'This event is no longer available.', 'not-found');
       store.setAttending(attendMatch[1]!, me.id, method === 'POST');
+      hub.broadcast({ type: 'events.changed' });
       const event = store.events(me.id).find((e) => e.id === attendMatch[1]);
       return json(200, { event: event ? withPeople(event) : null });
     }
@@ -666,6 +667,7 @@ export function createApi(store: Store, options: ApiOptions): Api {
     if (path === '/admin/events' && method === 'POST') {
       requireAdmin(request);
       const id = store.createEvent(parseEventInput(await readJson(request)));
+      hub.broadcast({ type: 'events.changed' });
       return json(201, { id });
     }
 
@@ -673,6 +675,7 @@ export function createApi(store: Store, options: ApiOptions): Api {
     if (adminEventMatch && method === 'DELETE') {
       requireAdmin(request);
       store.deleteEvent(adminEventMatch[1]!);
+      hub.broadcast({ type: 'events.changed' });
       return json(200, { ok: true });
     }
 

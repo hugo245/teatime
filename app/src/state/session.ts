@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { create } from 'zustand';
 import { api, normalizeUser, setApiToken, setAuthFailureListener, type ProfileInput, type PublicUser } from '../lib/api';
 import { realtime } from '../lib/realtime';
@@ -86,7 +87,7 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   async register(profile, photoBase64) {
-    const { token, user } = await api.register({ ...profile, deviceId: await deviceId() });
+    const { token, user } = await api.register({ ...profile, deviceId: Platform.OS === 'web' ? undefined : await deviceId() });
     await setSecret(TOKEN_KEY, token);
     setApiToken(token);
     let finalUser = user;

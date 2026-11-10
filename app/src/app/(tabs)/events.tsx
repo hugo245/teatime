@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
@@ -10,6 +10,7 @@ import { AdminEventForm } from '../../components/AdminEventForm';
 import { Avatar } from '../../components/Avatar';
 import { api, type TeaEvent } from '../../lib/api';
 import { firstName } from '../../lib/format';
+import { realtime } from '../../lib/realtime';
 import { scheduleEventReminders, syncEventReminders } from '../../lib/reminders';
 import { toast } from '../../state/ui';
 import { colors, radius, space } from '../../theme';
@@ -56,6 +57,14 @@ export default function EventsScreen() {
     useCallback(() => {
       void load();
     }, [load]),
+  );
+
+  useEffect(
+    () =>
+      realtime.subscribe((message) => {
+        if (message.type === 'events.changed') void load();
+      }),
+    [load],
   );
 
   const update = (event: TeaEvent) => setEvents((list) => list.map((e) => (e.id === event.id ? event : e)));
