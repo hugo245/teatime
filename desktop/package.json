@@ -1,0 +1,10 @@
+{
+  "name": "teatime-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TeaTime as a Mac app. Every copy has its own account.",
+  "main": "main.js",
+  "devDependencies": {
+    "electron": "^33.2.1"
+  }
+}

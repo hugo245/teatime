@@ -18,6 +18,8 @@ const option = (name, fallback) => {
 const requestedPort = Number(option('port', process.env.PORT ?? 8080));
 const live = flag('live');
 const liveServer = option('server', 'https://teatime.hugoplayzpersonal.workers.dev').replace(/\/+$/, '');
+const desktop = flag('desktop');
+const copies = Math.max(1, Math.min(4, Number(option('copies', 2)) || 2));
 const phones = Number(option('phones', live ? 1 : 2));
 const npm = platform() === 'win32' ? 'npm.cmd' : 'npm';
 const npx = platform() === 'win32' ? 'npx.cmd' : 'npx';
@@ -66,6 +68,11 @@ function needsInstall(dir, binary) {
 if (needsInstall(appDir, 'expo')) {
   say('Installing app packages, this takes a few minutes the first time');
   run(npm, ['install', '--no-audit', '--no-fund'], appDir);
+}
+const desktopDir = join(root, 'desktop');
+if (desktop && !existsSync(join(desktopDir, 'node_modules', '.bin', 'electron'))) {
+  say('Installing the Mac app shell (Electron), this takes a minute the first time');
+  run(npm, ['install', '--no-audit', '--no-fund'], desktopDir);
 }
 if (needsInstall(serverDir, 'tsc')) {
   say('Installing server packages');
@@ -128,11 +135,33 @@ server.stdout.on('data', (chunk) => {
   if (flag('verbose')) process.stdout.write(text);
   if (!opened && text.includes('TeaTime server listening')) {
     opened = true;
+    if (desktop) {
+      launchApps();
+      return;
+    }
     const url = `http://localhost:${port}/simulator${phones !== 2 ? `?phones=${phones}` : ''}`;
     say(`TeaTime is running at \x1b[1m${url}\x1b[0m  (Ctrl+C to stop)`);
     if (!flag('no-open')) openBrowser(url);
   }
 });
+
+function launchApps() {
+  const electron = join(desktopDir, 'node_modules', '.bin', platform() === 'win32' ? 'electron.cmd' : 'electron');
+  const names = ['a', 'b', 'c', 'd'].slice(0, copies);
+  let open = names.length;
+  say(`TeaTime is running as ${copies} separate app${copies === 1 ? '' : 's'}  (close the windows or press Ctrl+C to stop)`);
+  names.forEach((name, index) => {
+    const child = spawn(
+      electron,
+      [join(desktopDir, 'main.js'), `--instance=${name}`, `--url=http://localhost:${port}/`, `--offset=${index * 460}`],
+      { stdio: 'ignore', shell: platform() === 'win32' },
+    );
+    child.on('exit', () => {
+      open -= 1;
+      if (open === 0) stop();
+    });
+  });
+}
 
 function openBrowser(url) {
   const command = platform() === 'darwin' ? 'open' : platform() === 'win32' ? 'cmd' : 'xdg-open';

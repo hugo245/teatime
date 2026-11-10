@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useState, type ComponentProps } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
@@ -11,12 +11,10 @@ import { serverUrl } from '../../lib/config';
 import { useSession } from '../../state/session';
 import { colors, radius, space } from '../../theme';
 
-type IconName = ComponentProps<typeof Ionicons>['name'];
-
-const POINTS: { icon: IconName; text: string }[] = [
-  { icon: 'videocam', text: 'Have a friendly video chat with someone new' },
-  { icon: 'heart', text: 'Make friends and call them again any time' },
-  { icon: 'shield-checkmark', text: 'Safe and simple, with big clear buttons' },
+const POINTS = [
+  'Have a friendly video chat with someone new',
+  'Make friends and call them again any time',
+  'Safe and simple, with big clear buttons',
 ];
 
 export default function WelcomeScreen() {
@@ -57,21 +55,14 @@ export default function WelcomeScreen() {
         </View>
       ) : null}
 
-      <Image
-        source={require('../../../assets/images/tea-for-two.png')}
-        style={styles.illustration}
-        contentFit="contain"
-        accessible={false}
-      />
-
-      <View style={{ gap: 12 }}>
-        {POINTS.map((point) => (
-          <View key={point.text} style={styles.point}>
-            <View style={styles.pointIcon}>
-              <Ionicons name={point.icon} size={24} color={colors.primary} />
-            </View>
-            <AppText variant="bodyStrong" style={{ flex: 1 }}>
-              {point.text}
+      <View style={styles.points}>
+        {POINTS.map((text, i) => (
+          <View key={text} style={styles.point}>
+            <AppText variant="heading" color={colors.accent} style={styles.number}>
+              {i + 1}
+            </AppText>
+            <AppText variant="body" style={{ flex: 1 }}>
+              {text}
             </AppText>
           </View>
         ))}
@@ -93,24 +84,17 @@ const styles = StyleSheet.create({
     height: 76,
     marginBottom: 8,
   },
-  illustration: {
-    width: '100%',
-    aspectRatio: 1200 / 760,
-    maxHeight: 128,
-    marginVertical: space.lg,
+  points: {
+    gap: 16,
+    marginTop: space.xl,
+  },
+  number: {
+    width: 24,
   },
   point: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  pointIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'baseline',
+    gap: 12,
   },
   notice: {
     flexDirection: 'row',
