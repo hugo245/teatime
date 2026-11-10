@@ -109,4 +109,4 @@ jobs:
           gh release create ios-latest "$RUNNER_TEMP/ipa/TeaTime.ipa" "$RUNNER_TEMP/ipa/version.json" \
             --target "$GITHUB_SHA" \
             --title "TeaTime for iPhone (build $TEATIME_BUILD_NUMBER)" \
-            --notes "Unsigned build from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Install it with Sideloadly or AltStore, see the README for the steps."
+            --notes "build $TEATIME_BUILD_NUMBER latest ios"
