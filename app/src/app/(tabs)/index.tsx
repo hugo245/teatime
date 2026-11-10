@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useMemo } from 'react';
 import { router } from 'expo-router';
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
@@ -43,7 +44,18 @@ export default function MeetScreen() {
         <UpdateCard />
 
         <Card style={styles.hero}>
-          <AppText variant="title">Ready for a chat?</AppText>
+          <View style={styles.heroTop}>
+            <AppText variant="title" style={{ flex: 1 }}>
+              Ready for a chat?
+            </AppText>
+            <Image
+              source={require('../../../assets/images/thumbs-up.png')}
+              style={styles.thumbs}
+              contentFit="contain"
+              accessible={false}
+              accessibilityIgnoresInvertColors
+            />
+          </View>
           <AppText variant="body" color={colors.textMuted}>
             We will pair you with someone friendly. You can say goodbye at any time.
           </AppText>
@@ -178,6 +190,15 @@ const styles = StyleSheet.create({
   hero: {
     gap: 10,
     paddingVertical: 22,
+  },
+  heroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  thumbs: {
+    width: 72,
+    height: 72,
   },
   onlinePill: {
     flexDirection: 'row',
