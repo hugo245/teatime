@@ -94,7 +94,7 @@ export default function EventsScreen() {
             <Button label="Try again" icon="refresh" size="medium" onPress={() => void load()} />
           </Card>
         ) : null}
-        <AdminEventForm onCreated={() => void load()} />
+        <AdminEventForm onCreated={() => void load()} events={events} />
       </View>
     </Screen>
   );

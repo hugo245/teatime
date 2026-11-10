@@ -4,7 +4,7 @@ import { serverUrl } from '../lib/config';
 import { getItem, setItem } from '../lib/storage';
 
 // Testing tool for creating events. Intentionally plain.
-export function AdminEventForm({ onCreated }: { onCreated: () => void }) {
+export function AdminEventForm({ onCreated, events = [] }: { onCreated: () => void; events?: { id: string; title: string }[] }) {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState('');
   const [title, setTitle] = useState('');
@@ -41,6 +41,21 @@ export function AdminEventForm({ onCreated }: { onCreated: () => void }) {
     }
   };
 
+  const remove = async (id: string) => {
+    setResult('deleting...');
+    try {
+      const res = await fetch(`${serverUrl()}/admin/events/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token.trim()}` },
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+      setResult(res.ok ? 'deleted' : `error ${res.status}: ${data.message ?? data.error ?? 'failed'}`);
+      if (res.ok) onCreated();
+    } catch (e) {
+      setResult(`error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   if (!open) {
     return (
       <Pressable onPress={() => setOpen(true)}>
@@ -71,6 +86,11 @@ export function AdminEventForm({ onCreated }: { onCreated: () => void }) {
       <Pressable onPress={() => setOpen(false)}>
         <Text>[close]</Text>
       </Pressable>
+      {events.map((e) => (
+        <Pressable key={e.id} onPress={() => void remove(e.id)}>
+          <Text>[delete] {e.title}</Text>
+        </Pressable>
+      ))}
       {result ? <Text>{result}</Text> : null}
     </View>
   );
