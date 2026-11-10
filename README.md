@@ -98,7 +98,11 @@ This opens TeaTime in a phone frame in your browser, connected to the real TeaTi
 npm run desktop
 ```
 
-This opens two separate TeaTime apps (**TeaTime A** and **TeaTime B**), not browser tabs. Each has its own account, camera and storage, and they can call each other. The first run downloads Electron, which takes a minute. Use `-- --copies 3` for more, or add `--live` to talk to the real server instead.
+`npm run desktop` talks to the real TeaTime server, so the Mac apps can call iPhones and Android phones. Add `-- --local` for a private test server instead.
+
+This opens two separate TeaTime apps (**TeaTime A** and **TeaTime B**), not browser tabs. Each has its own account, camera and storage, and they can call each other. The first run downloads Electron, which takes a minute. Use `-- --copies 3` for more.
+
+The Events tab has a plain `[admin] create event` link at the bottom. Fill in your `ADMIN_TOKEN` and the event details to add an event on the server.
 
 Chrome or Edge work best. Allow the camera and microphone when the browser asks.
 

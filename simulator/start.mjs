@@ -16,9 +16,10 @@ const option = (name, fallback) => {
 };
 
 const requestedPort = Number(option('port', process.env.PORT ?? 8080));
-const live = flag('live');
 const liveServer = option('server', 'https://teatime.hugoplayzpersonal.workers.dev').replace(/\/+$/, '');
 const desktop = flag('desktop');
+// The Mac apps use the real server by default so they can call iPhones. Add --local for a private test server.
+const live = flag('live') || (desktop && !flag('local'));
 const copies = Math.max(1, Math.min(4, Number(option('copies', 2)) || 2));
 const phones = Number(option('phones', live ? 1 : 2));
 const npm = platform() === 'win32' ? 'npm.cmd' : 'npm';

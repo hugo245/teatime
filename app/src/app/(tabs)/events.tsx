@@ -6,6 +6,7 @@ import { AppText } from '../../components/AppText';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { Screen } from '../../components/Screen';
+import { AdminEventForm } from '../../components/AdminEventForm';
 import { Avatar } from '../../components/Avatar';
 import { api, type TeaEvent } from '../../lib/api';
 import { firstName } from '../../lib/format';
@@ -93,6 +94,7 @@ export default function EventsScreen() {
             <Button label="Try again" icon="refresh" size="medium" onPress={() => void load()} />
           </Card>
         ) : null}
+        <AdminEventForm onCreated={() => void load()} />
       </View>
     </Screen>
   );
