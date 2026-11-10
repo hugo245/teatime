@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
-import { useMemo, type ComponentProps } from 'react';
+import { useMemo } from 'react';
 import { router } from 'expo-router';
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -44,18 +43,9 @@ export default function MeetScreen() {
         <UpdateCard />
 
         <Card style={styles.hero}>
-          <Image
-            source={require('../../../assets/images/tea-for-two.png')}
-            style={styles.illustration}
-            contentFit="contain"
-            accessibilityIgnoresInvertColors
-            accessible={false}
-          />
-          <AppText variant="title" center>
-            Ready for a chat?
-          </AppText>
-          <AppText variant="body" color={colors.textMuted} center>
-            Meet a friendly person for a video chat. You can say goodbye at any time.
+          <AppText variant="title">Ready for a chat?</AppText>
+          <AppText variant="body" color={colors.textMuted}>
+            We will pair you with someone friendly. You can say goodbye at any time.
           </AppText>
 
           {status === 'online' ? (
@@ -78,9 +68,6 @@ export default function MeetScreen() {
 
         <Card style={styles.prefCard}>
           <View style={styles.prefRow}>
-            <View style={styles.prefIcon}>
-              <Ionicons name="shield-checkmark" size={24} color={colors.verified} />
-            </View>
             <View style={{ flex: 1, gap: 2 }}>
               <AppText variant="bodyStrong">Only meet people with Verified Age</AppText>
               <AppText variant="caption" color={colors.textMuted}>
@@ -166,22 +153,11 @@ export default function MeetScreen() {
         ) : null}
 
         <View style={styles.tips}>
-          <Tip icon="happy-outline" text="Smile and say hello. Most people love a chat." />
-          <Tip icon="person-add-outline" text="Enjoyed talking? Tap Add friend to call them again later." />
-          <Tip icon="shield-checkmark-outline" text="Never share bank details. Tap Report if something feels wrong." />
+          <AppText variant="caption" color={colors.textFaint}>
+            Enjoyed talking? Tap Add friend during the call to speak again later. Never share bank details, and tap Report if something feels wrong.
+          </AppText>
         </View>
       </ScrollView>
-    </View>
-  );
-}
-
-function Tip({ icon, text }: { icon: ComponentProps<typeof Ionicons>['name']; text: string }) {
-  return (
-    <View style={styles.tip}>
-      <Ionicons name={icon} size={24} color={colors.primary} />
-      <AppText variant="body" color={colors.textMuted} style={{ flex: 1 }}>
-        {text}
-      </AppText>
     </View>
   );
 }
@@ -200,15 +176,8 @@ const styles = StyleSheet.create({
     paddingTop: space.lg,
   },
   hero: {
-    alignItems: 'center',
     gap: 10,
-    paddingTop: 12,
-    paddingBottom: 22,
-  },
-  illustration: {
-    width: '100%',
-    aspectRatio: 1200 / 760,
-    maxHeight: 190,
+    paddingVertical: 22,
   },
   onlinePill: {
     flexDirection: 'row',
@@ -218,6 +187,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: radius.pill,
+    alignSelf: 'flex-start',
     marginTop: 4,
   },
   onlineDot: {
@@ -234,14 +204,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  prefIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: colors.verifiedSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   notice: {
     gap: 14,
@@ -279,11 +241,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   tips: {
-    gap: 14,
-  },
-  tip: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
+    paddingHorizontal: 4,
   },
 });

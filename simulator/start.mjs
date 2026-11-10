@@ -15,7 +15,7 @@ const option = (name, fallback) => {
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 };
 
-const port = Number(option('port', process.env.PORT ?? 8080));
+const requestedPort = Number(option('port', process.env.PORT ?? 8080));
 const live = flag('live');
 const liveServer = option('server', 'https://teatime.hugoplayzpersonal.workers.dev').replace(/\/+$/, '');
 const phones = Number(option('phones', live ? 1 : 2));
@@ -94,11 +94,20 @@ if (flag('rebuild') || !existsSync(webIndex) || appSources > statSync(webIndex).
   });
 }
 
-const busy = await fetch(`http://localhost:${port}/health`).then(() => true, () => false);
-if (busy) {
-  console.error(`Something is already running on port ${port}, probably an older TeaTime. Close that Terminal window or run: lsof -ti :${port} | xargs kill`);
-  process.exit(1);
+async function isFree(candidate) {
+  return fetch(`http://localhost:${candidate}/health`).then(() => false, () => true);
 }
+
+// A second copy picks the next free port, so two copies can run side by side.
+let port = requestedPort;
+while (!(await isFree(port))) {
+  if (port - requestedPort >= 20) {
+    console.error(`No free port found near ${requestedPort}. Close other TeaTime windows and try again.`);
+    process.exit(1);
+  }
+  port += 1;
+}
+if (port !== requestedPort) say(`Port ${requestedPort} is in use by another copy, using ${port} instead`);
 
 const server = spawn(process.execPath, ['--no-warnings', join(serverDir, 'dist', 'index.js')], {
   cwd: serverDir,
@@ -106,7 +115,7 @@ const server = spawn(process.execPath, ['--no-warnings', join(serverDir, 'dist',
   env: {
     ...process.env,
     PORT: String(port),
-    DATABASE_FILE: join(serverDir, 'data', 'simulator.db'),
+    DATABASE_FILE: join(serverDir, 'data', port === requestedPort ? 'simulator.db' : `simulator-${port}.db`),
     WEB_APP_DIR: webDir,
     SIMULATOR_DIR: join(root, 'simulator', 'public'),
     SUPPORT_EMAIL: process.env.SUPPORT_EMAIL ?? 'support@teatime.app',

@@ -92,6 +92,8 @@ npm run live
 
 This opens TeaTime in a phone frame in your browser, connected to the real TeaTime server. It is the same app as on the phones, so you can meet, chat and call with people who use TeaTime on their iPhone or Android. Add `-- --phones 2` for two phones side by side, or open `http://localhost:8080/` for one phone without the frame. To use a different server, add `-- --server https://your-server`.
 
+To run two copies of TeaTime on one Mac, open a second Terminal window and run the same command again. The second copy notices port 8080 is taken and uses 8081, so each copy keeps its own account and they can call each other. Two tabs on the same address share one account.
+
 Chrome or Edge work best. Allow the camera and microphone when the browser asks.
 
 ## Install it on your iPhone
