@@ -186,8 +186,11 @@ export function createApi(store: Store, options: ApiOptions): Api {
   }
 
   function requireAdmin(request: Request) {
-    if (!options.adminToken || request.headers.get('authorization') !== `Bearer ${options.adminToken}`) {
-      throw new HttpError(401, 'Unauthorized', 'unauthorized');
+    if (!options.adminToken) {
+      throw new HttpError(401, 'Unauthorized: this server has no ADMIN_TOKEN set.', 'admin-not-configured');
+    }
+    if (request.headers.get('authorization') !== `Bearer ${options.adminToken}`) {
+      throw new HttpError(401, 'Unauthorized: the admin token does not match.', 'unauthorized');
     }
   }
 
